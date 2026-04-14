@@ -1,0 +1,31 @@
+[build-system]
+requires      = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name            = "big-tempo"
+version         = "0.2.0"
+description     = "Big JACK tempo display with MIDI control via mididings"
+readme          = "README.rst"
+requires-python = ">=3.9"
+license         = { text = "MIT" }
+
+# Runtime dependencies – jack and mididings are optional (the app degrades
+# gracefully when they are absent) so they are listed as extras.
+dependencies = []
+
+[project.optional-dependencies]
+jack     = ["JACK-Client>=0.5"]
+midi     = ["mididings>=0.9"]
+full     = ["JACK-Client>=0.5", "mididings>=0.9"]
+dev      = ["pytest>=7", "pytest-cov"]
+
+[project.scripts]
+big-tempo = "big_tempo.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths    = ["tests"]
+addopts      = "-v --tb=short"

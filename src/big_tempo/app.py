@@ -15,6 +15,7 @@ import tkinter as tk
 import tkinter.font as tkfont
 
 from big_tempo.config import clamp_bpm
+from big_tempo.tempo_list import TempoList
 from big_tempo.constants import (
     BPM_ADOPT_COOLDOWN,
     BORDER_COLOR,
@@ -67,6 +68,9 @@ class BigTempo:
         # Button hold‑repeat job handle
         self._repeat_job = None
 
+        # ── Tempo list (save / cycle / clear) ───────────────────────────────────────────
+        self._tempo_list = TempoList()
+
         # ── JACK client ────────────────────────────────────────────────────────
         if HAS_JACK:
             try:
@@ -102,6 +106,14 @@ class BigTempo:
         elif action == "set":
             from big_tempo.config import midi_value_to_bpm
             self._user_set_bpm(midi_value_to_bpm(raw, self.cfg))
+        elif action == "list_append":
+            self._tempo_list.append(self.current_bpm)
+        elif action == "list_next":
+            bpm = self._tempo_list.next()
+            if bpm is not None:
+                self._user_set_bpm(bpm)
+        elif action == "list_clear":
+            self._tempo_list.clear()
 
     # ── Button hold‑repeat ─────────────────────────────────────────────────────
     def _btn_press(self, direction: int) -> None:

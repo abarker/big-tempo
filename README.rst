@@ -145,7 +145,7 @@ Receive actions
 
 .. list-table::
    :header-rows: 1
-   :widths: 10 40
+   :widths: 15 50
 
    * - Action
      - Effect
@@ -154,7 +154,29 @@ Receive actions
    * - ``down``
      - Subtract ``amount`` BPM
    * - ``set``
-     - Map incoming value 0–127 → min_bpm–max_bpm
+     - Map incoming CC value 0–127 → min_bpm–max_bpm
+   * - ``list_append``
+     - Save the current BPM to the end of the tempo list
+   * - ``list_next``
+     - Advance the tempo-list pointer by one step (wrapping cyclically),
+       apply that BPM, and send the outgoing CC
+   * - ``list_clear``
+     - Discard all saved tempos and reset the list pointer
+
+Tempo list
+~~~~~~~~~~
+
+The tempo list lets you pre-save a set of BPM values and recall them live
+in order.  A typical workflow::
+
+    # Soundcheck: dial in each song's tempo, then:
+    CC23  →  list_append   (repeat for each song)
+
+    # Performance: one stomp per song to change tempo
+    CC24  →  list_next     (cycles back to start after the last entry)
+
+    # End of night
+    CC25  →  list_clear
 
 Send
 ~~~~

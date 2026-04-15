@@ -5,8 +5,8 @@ All functions in this module are free of tkinter / JACK / mididings so they
 can be imported and tested on any machine.
 """
 
+import ast
 import copy
-import json
 import os
 import sys
 from typing import Optional
@@ -28,23 +28,40 @@ DEFAULT_CFG: dict = {
     "send": {},
 }
 
-DEFAULT_CONFIG_PATH = os.path.expanduser("~/.config/big-tempo/config.json")
+DEFAULT_CONFIG_PATH = os.path.expanduser("~/.config/big-tempo/config.py")
 
 
 # ── Loader ─────────────────────────────────────────────────────────────────────
 def load_config(path: Optional[str] = None) -> dict:
     """
-    Return a config dict merged from built‑in defaults and the JSON file at
-    *path* (default: ``~/.config/big-tempo/config.json``).
+    Return a config dict merged from built-in defaults and the Python dict
+    literal file at *path* (default: ``~/.config/big-tempo/config.py``).
 
-    Merge strategy: deep‑copy the defaults, then for every top‑level key
+    The config file must contain a single Python dict literal – the same
+    syntax as a Python ``dict`` expression, with full support for ``#``
+    line comments.  It is parsed with ``ast.literal_eval``, which accepts
+    only data literals (strings, numbers, booleans, ``None``, lists, dicts)
+    and cannot execute arbitrary code.
+
+    Example config.py::
+
+        {
+            "min_bpm": 40.0,            # raise floor for this gig
+            "receive": {
+                "CC20": {"action": "up",   "amount": 1.0},
+                "CC21": {"action": "down", "amount": 1.0},
+            },
+        }
+
+    Merge strategy: deep-copy the defaults, then for every top-level key
     present in the user file:
-    - if both sides are dicts → ``dict.update()`` (sub‑keys override, rest kept)
+
+    - if both sides are dicts → ``dict.update()`` (sub-keys override, rest kept)
     - otherwise → replace the default value outright
 
-    A missing or unreadable file is silently ignored (defaults are returned).
-    A file that exists but contains invalid JSON prints a warning to stderr
-    and falls back to defaults.
+    A missing file is silently ignored (defaults are returned).
+    A file that exists but is malformed prints a warning to stderr and
+    falls back to defaults.
     """
     cfg = copy.deepcopy(DEFAULT_CFG)
     resolved = path if path is not None else DEFAULT_CONFIG_PATH
@@ -54,7 +71,12 @@ def load_config(path: Optional[str] = None) -> dict:
 
     try:
         with open(resolved, encoding="utf-8") as fh:
-            user = json.load(fh)
+            source = fh.read()
+        user = ast.literal_eval(source)
+        if not isinstance(user, dict):
+            raise TypeError(
+                f"config file must contain a dict literal, got {type(user).__name__}"
+            )
     except Exception as exc:
         print(f"Warning: cannot load config '{resolved}': {exc}", file=sys.stderr)
         return cfg

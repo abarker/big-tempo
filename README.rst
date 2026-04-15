@@ -52,17 +52,17 @@ Installation
 ------------
 
 ``JACK-Client`` and ``mididings`` link against C libraries (``libjack`` and
-``libmidishare`` / ALSA) that pip cannot install for you.  Install them
-first via your system package manager, then install the Python wrappers
-manually before running ``pip install -e .``::
+ALSA) that pip cannot build automatically.  Install the system libraries and
+their Python bindings **before** running ``pip install -e .``::
 
-    # Debian / Ubuntu
+    # Debian / Ubuntu – recommended path
     sudo apt install python3-jack python3-mididings python3-tk
 
-    # or install the Python packages by hand after the C libs are present
+    # Alternative: install C libs via apt, then Python wrappers via pip
+    sudo apt install libjack-jackd2-dev python3-tk
     pip install JACK-Client mididings
 
-Then install the package itself in editable mode::
+Then install the package in editable mode::
 
     pip install -e .
 
@@ -70,7 +70,11 @@ For development (adds pytest)::
 
     pip install -e ".[dev]"
 
+.. note::
 
+   If ``pip install -e .`` fails with a build error for ``JACK-Client`` or
+   ``mididings``, install those two packages manually first (see above) and
+   then re-run ``pip install -e .``.
 Running
 -------
 
@@ -98,31 +102,43 @@ All CLI options::
 Config file
 -----------
 
-Default location: ``~/.config/big-tempo/config.json``
+Default location: ``~/.config/big-tempo/config.py``
 
-.. code-block:: json
+The file must contain a single Python **dict literal**.  Full ``#`` comment
+syntax and trailing commas are supported (unlike JSON).  It is parsed with
+``ast.literal_eval`` – no arbitrary code is executed.
 
+.. code-block:: python
+
+    # big-tempo configuration
     {
         "midi": {
             "client_name": "big_tempo_midi",
-            "channel": 1
+            "channel": 1,
         },
         "buttons": {
-            "increment": 1.0,
-            "repeat_delay_ms": 400,
-            "repeat_ms": 80
+            "increment": 1.0,           # BPM per click or repeat tick
+            "repeat_delay_ms": 400,     # ms before hold-repeat starts
+            "repeat_ms": 80,            # ms between repeat ticks
         },
         "min_bpm": 20.0,
         "max_bpm": 300.0,
         "receive": {
             "CC20": {"action": "up",   "amount": 1.0},
             "CC21": {"action": "down", "amount": 1.0},
-            "CC22": {"action": "set"}
+            "CC22": {"action": "set"},  # maps 0-127 → min_bpm-max_bpm
         },
         "send": {
-            "on_change": {"cc": 30, "channel": 1}
-        }
+            "on_change": {"cc": 30, "channel": 1},
+        },
     }
+
+A fully annotated starter file is provided as ``example_config.py`` in the
+repository root.  Copy it to the default location::
+
+    mkdir -p ~/.config/big-tempo
+    cp example_config.py ~/.config/big-tempo/config.py
+
 
 Receive actions
 ~~~~~~~~~~~~~~~
@@ -190,4 +206,5 @@ Package layout
     │   ├── test_bpm_math.py      clamp / CC value mapping
     │   └── test_midi_handler.py  MIDI routing (mididings mocked)
     ├── pyproject.toml
-    └── README.rst
+    ├── README.rst
+    └── example_config.py

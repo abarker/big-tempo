@@ -30,6 +30,7 @@ from big_tempo.constants import (
     SEP_COLOR,
 )
 from big_tempo.midi import MidiHandler
+from big_tempo.osc  import OscSender
 
 try:
     import jack
@@ -81,6 +82,9 @@ class BigTempo:
         # ── MIDI ───────────────────────────────────────────────────────────────
         self.midi = MidiHandler(cfg, root, self._on_midi_receive)
 
+        # ── OSC ───────────────────────────────────────────────────────
+        self.osc  = OscSender(cfg)
+
         self._drag_data: dict = {}
         self._setup_window()
         self._create_widgets()
@@ -92,10 +96,11 @@ class BigTempo:
         return clamp_bpm(bpm, self.cfg)
 
     def _user_set_bpm(self, bpm: float) -> None:
-        """Apply a user‑initiated BPM change and fire outgoing MIDI CC."""
+        """Apply a user‑initiated BPM change and fire outgoing MIDI CC and OSC."""
         self.current_bpm     = self._clamp(bpm)
         self._last_user_time = time.monotonic()
         self.midi.send_bpm(self.current_bpm)
+        self.osc.send_bpm(self.current_bpm)
 
     # ── MIDI receive (runs on tkinter main thread) ─────────────────────────────
     def _on_midi_receive(self, action: str, amount: float, raw: int) -> None:

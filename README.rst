@@ -193,6 +193,53 @@ before entering a fast repeat loop at ``repeat_ms`` per tick.  Both
 intervals are configurable per-config.
 
 
+OSC output (Hydrogen absolute tempo)
+-------------------------------------
+
+Hydrogen's MIDI interface only exposes *relative* BPM commands
+(``BPM_CC_RELATIVE``), which require knowing the receiver's current tempo to
+compute the right delta – unreliable over async transport.
+
+Hydrogen's OSC interface (``Edit → Preferences → OSC``, default port 9000)
+accepts ``/Hydrogen/BPM <float>`` as an **absolute** tempo command, making it
+the correct channel for deterministic tempo control.
+
+Install the pure-Python OSC library::
+
+    pip install python-osc
+
+Then enable OSC in ``config.py``::
+
+    "osc": {
+        "host":      "127.0.0.1",   # Hydrogen host
+        "port":      9000,           # Hydrogen OSC port (default 9000)
+        "address":   "/Hydrogen/BPM",
+        "on_change": True,           # was False
+    },
+
+Every user-initiated BPM change (buttons, incoming MIDI CC, or
+``list_next``) will then fire both the outgoing MIDI CC **and** the OSC
+message.  JACK-initiated changes still do not trigger either.
+
+If ``python-osc`` is not installed, a one-time warning is printed to stderr
+and the program continues with MIDI-only output.
+
+MIDI relative workaround (not recommended)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+If OSC is unavailable, Hydrogen's ``BPM_CC_RELATIVE`` action interprets CC
+values using the standard signed-encoder convention:
+
+* Values **1–63**  → +1 to +63 BPM
+* Values **65–127** → −63 to −1 BPM
+* Value **0** → no change
+
+Maximum single-message swing is ±63 BPM.  Reaching an arbitrary target
+requires two hops for large jumps, and computing the right delta demands
+certainty about Hydrogen's current tempo – which the async JACK poll cannot
+guarantee.  OSC is strongly preferred.
+
+
 Development
 -----------
 

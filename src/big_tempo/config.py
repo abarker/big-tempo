@@ -25,7 +25,9 @@ DEFAULT_CFG: dict = {
     "min_bpm": 20.0,
     "max_bpm": 300.0,
     "receive": {},
-    "send": {},
+    "midi_send": {},
+    "osc":      {},
+    "osc_send": {},
 }
 
 DEFAULT_CONFIG_PATH = os.path.expanduser("~/.config/big-tempo/config.py")

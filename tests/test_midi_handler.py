@@ -76,8 +76,8 @@ def _make_handler(cfg: dict):
     # root.after(0, fn) should execute fn() immediately
     root.after = lambda delay, fn: fn()
 
-    def on_receive(action, amount, raw):
-        received.append({"action": action, "amount": amount, "raw": raw})
+    def on_receive(action, amount, raw, osc_spec=None):
+        received.append({"action": action, "amount": amount, "raw": raw, "osc_spec": osc_spec})
 
     handler          = MidiHandler(cfg, root, on_receive)
     handler._started.set()   # skip the real mididings startup
@@ -94,7 +94,7 @@ CFG_BASE = {
         "CC21": {"action": "down", "amount": 2.5},
         "CC22": {"action": "set"},
     },
-    "send": {
+    "midi_send": {
         "on_change": {"cc": 30, "channel": 1},
     },
 }
@@ -153,7 +153,7 @@ class TestSendBpm:
         assert engine_mock.output_event.called
 
     def test_no_send_when_on_change_absent(self):
-        cfg = {**CFG_BASE, "send": {}}
+        cfg = {**CFG_BASE, "midi_send": {}}
         handler, _ = _make_handler(cfg)
         engine_mock = sys.modules["mididings.engine"]
         engine_mock.output_event.reset_mock()
@@ -171,7 +171,7 @@ class TestSendBpm:
         assert not engine_mock.output_event.called
 
     def test_ctrl_event_created_with_correct_channel(self):
-        cfg = {**CFG_BASE, "send": {"on_change": {"cc": 42, "channel": 3}}}
+        cfg = {**CFG_BASE, "midi_send": {"on_change": {"cc": 42, "channel": 3}}}
         handler, _ = _make_handler(cfg)
         ctrl_mock = sys.modules["mididings.event"].CtrlEvent
         ctrl_mock.reset_mock()

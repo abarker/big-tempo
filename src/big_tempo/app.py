@@ -100,10 +100,16 @@ class BigTempo:
         self.current_bpm     = self._clamp(bpm)
         self._last_user_time = time.monotonic()
         self.midi.send_bpm(self.current_bpm)
-        self.osc.send_bpm(self.current_bpm)
+        self.osc.send_on_change(self.current_bpm)
 
     # ── MIDI receive (runs on tkinter main thread) ─────────────────────────────
-    def _on_midi_receive(self, action: str, amount: float, raw: int) -> None:
+    def _on_midi_receive(
+        self,
+        action: str,
+        amount: float,
+        raw: int,
+        osc_spec: dict | None = None,
+    ) -> None:
         if action == "up":
             self._user_set_bpm(self.current_bpm + amount)
         elif action == "down":
@@ -119,6 +125,11 @@ class BigTempo:
                 self._user_set_bpm(bpm)
         elif action == "list_clear":
             self._tempo_list.clear()
+        elif action == "osc_only":
+            pass   # no BPM change; OSC fired below if osc_spec present
+        # Fire per-receive OSC (independent of action type)
+        if osc_spec:
+            self.osc.send_with_context(osc_spec, bpm=self.current_bpm, raw=raw)
 
     # ── Button hold‑repeat ─────────────────────────────────────────────────────
     def _btn_press(self, direction: int) -> None:

@@ -29,7 +29,7 @@ class TestDefaultCfg:
     """DEFAULT_CFG must be a complete, self-consistent baseline."""
 
     def test_has_required_top_level_keys(self):
-        for key in ("midi", "buttons", "min_bpm", "max_bpm", "receive", "send"):
+        for key in ("midi", "buttons", "min_bpm", "max_bpm", "receive", "midi_send", "osc", "osc_send"):
             assert key in DEFAULT_CFG, f"Missing key: {key}"
 
     def test_min_bpm_less_than_max(self):
@@ -45,7 +45,8 @@ class TestDefaultCfg:
 
     def test_receive_and_send_are_dicts(self):
         assert isinstance(DEFAULT_CFG["receive"], dict)
-        assert isinstance(DEFAULT_CFG["send"],    dict)
+        assert isinstance(DEFAULT_CFG["midi_send"], dict)
+        assert isinstance(DEFAULT_CFG["osc_send"],  dict)
 
 
 # ── Config loader ──────────────────────────────────────────────────────────────
@@ -97,10 +98,10 @@ class TestLoadConfig:
 
     def test_send_mapping_survives(self, tmp_path):
         f = tmp_path / "cfg.py"
-        write_cfg(f, '{"send": {"on_change": {"cc": 42, "channel": 2}}}')
+        write_cfg(f, '{"midi_send": {"on_change": {"cc": 42, "channel": 2}}}')
         cfg = load_config(str(f))
-        assert cfg["send"]["on_change"]["cc"]      == 42
-        assert cfg["send"]["on_change"]["channel"] == 2
+        assert cfg["midi_send"]["on_change"]["cc"]      == 42
+        assert cfg["midi_send"]["on_change"]["channel"] == 2
 
     def test_inline_comments_are_ignored(self, tmp_path):
         """# comments must be stripped cleanly by the Python tokeniser."""

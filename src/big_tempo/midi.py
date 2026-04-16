@@ -37,9 +37,10 @@ class MidiHandler:
     root       : tkinter root widget (used only for ``root.after()``)
     on_receive : callable(action: str, amount: float, raw: int)
                  Called on the tkinter main thread for each matched CC event.
-                 action – ``'up'`` | ``'down'`` | ``'set'``
-                 amount – configured BPM delta (for up/down); 0.0 for set
-                 raw    – raw 0‑127 MIDI CC value
+                 action   – ``'up'`` | ``'down'`` | ``'set'`` | ``'list_append'`` | etc.
+                 amount   – configured BPM delta (for up/down); 0.0 otherwise
+                 raw      – raw 0‑127 MIDI CC value
+                 osc_spec – ``"osc_send"`` sub-dict from the receive entry, or None
     """
 
     def __init__(self, cfg: dict, root, on_receive):
@@ -66,7 +67,7 @@ class MidiHandler:
         """
         if not HAS_MIDIDINGS or not self._started.is_set():
             return
-        send_cfg = self.cfg.get("send", {}).get("on_change")
+        send_cfg = self.cfg.get("midi_send", {}).get("on_change")
         if not send_cfg:
             return
 
@@ -95,13 +96,14 @@ class MidiHandler:
         receive = self.cfg.get("receive", {})
         if key not in receive:
             return
-        spec   = receive[key]
-        action = spec.get("action", "")
-        amount = float(spec.get("amount", 1.0))
-        raw    = int(ev.value)
+        spec     = receive[key]
+        action   = spec.get("action", "")
+        amount   = float(spec.get("amount", 1.0))
+        raw      = int(ev.value)
+        osc_spec = spec.get("osc_send")   # None if not configured
         self.root.after(
             0,
-            lambda a=action, m=amount, r=raw: self.on_receive(a, m, r),
+            lambda a=action, m=amount, r=raw, o=osc_spec: self.on_receive(a, m, r, o),
         )
 
     # ── Engine thread ───────────────────────────────────────────────────────────

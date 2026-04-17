@@ -85,6 +85,12 @@ class BigTempo:
         # ── OSC ───────────────────────────────────────────────────────
         self.osc  = OscSender(cfg)
 
+        if cfg.get("debug", False):
+            print(f"[app] debug mode ON", file=sys.stderr, flush=True)
+            print(f"[app] OSC sender enabled={self.osc.enabled}", file=sys.stderr, flush=True)
+            print(f"[app] JACK client={'connected' if self.jack_client else 'not connected'}",
+                  file=sys.stderr, flush=True)
+
         self._drag_data: dict = {}
         self._setup_window()
         self._create_widgets()
@@ -92,6 +98,11 @@ class BigTempo:
         self._update_loop()
 
     # ── BPM management ─────────────────────────────────────────────────────────
+    def _dbg(self, msg: str) -> None:
+        """Print *msg* to stderr when debug mode is enabled."""
+        if self.cfg.get("debug", False):
+            print(f"[app] {msg}", file=sys.stderr, flush=True)
+
     def _clamp(self, bpm: float) -> float:
         return clamp_bpm(bpm, self.cfg)
 
@@ -99,6 +110,7 @@ class BigTempo:
         """Apply a user‑initiated BPM change and fire outgoing MIDI CC and OSC."""
         self.current_bpm     = self._clamp(bpm)
         self._last_user_time = time.monotonic()
+        self._dbg(f"_user_set_bpm: {self.current_bpm:.3f} BPM")
         self.midi.send_on_change(self.current_bpm)
         self.osc.send_on_change(self.current_bpm)
 

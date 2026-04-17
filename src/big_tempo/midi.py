@@ -82,6 +82,11 @@ class MidiHandler:
 
     # ── Public API ──────────────────────────────────────────────────────────────
 
+    def _dbg(self, msg: str) -> None:
+        """Print *msg* to stderr when debug mode is enabled."""
+        if self.cfg.get("debug", False):
+            print(f"[midi] {msg}", file=sys.stderr, flush=True)
+
     def start(self) -> None:
         """Spawn the mididings thread. Silent no-op when mididings is absent."""
         if not HAS_MIDIDINGS:
@@ -97,9 +102,13 @@ class MidiHandler:
         Called by ``_user_set_bpm()`` on every user-initiated BPM change.
         ``raw`` is meaningless in this context and is passed as 0.
         """
+        self._dbg(f"send_on_change(bpm={bpm:.3f}): started={self._started.is_set()}")
         spec = self.cfg.get("midi_send", {}).get("on_change")
-        if spec:
-            self.send_with_context(spec, bpm=bpm, raw=0)
+        if spec is None:
+            self._dbg("  midi_send.on_change not configured → no-op")
+            return
+        self._dbg(f"  spec = {spec}")
+        self.send_with_context(spec, bpm=bpm, raw=0)
 
     def send_with_context(
         self,
@@ -201,5 +210,6 @@ class MidiHandler:
             out_ports=["out"],
         )
         patch = Filter(CTRL) >> Call(self._handle_ctrl)
+        self._dbg("mididings engine starting…")
         self._started.set()
         mrun(patch)

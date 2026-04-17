@@ -14,7 +14,7 @@ import time
 import tkinter as tk
 import tkinter.font as tkfont
 
-from big_tempo.config import clamp_bpm
+from big_tempo.config import clamp_bpm, quantize_bpm
 from big_tempo.tempo_list import TempoList
 from big_tempo.constants import (
     BPM_ADOPT_COOLDOWN,
@@ -64,6 +64,7 @@ class BigTempo:
         self.current_bpm     = 120.0
         self._jack_bpm       = None    # last BPM seen from JACK; None = never seen
         self._rolling        = False
+        self._prev_rolling   = None    # None = first poll; no edge fired yet
         self._last_user_time = 0.0     # monotonic timestamp of last user change
 
         # Button hold‑repeat job handle
@@ -108,9 +109,13 @@ class BigTempo:
 
     def _user_set_bpm(self, bpm: float) -> None:
         """Apply a user‑initiated BPM change and fire outgoing MIDI CC and OSC."""
-        self.current_bpm     = self._clamp(bpm)
+        quantized            = quantize_bpm(bpm, self.cfg)
+        self.current_bpm     = self._clamp(quantized)
         self._last_user_time = time.monotonic()
-        self._dbg(f"_user_set_bpm: {self.current_bpm:.3f} BPM")
+        self._dbg(
+            f"_user_set_bpm: raw={bpm:.3f}  quantized={quantized:.3f}"
+            f"  clamped={self.current_bpm:.3f}"
+        )
         self.midi.send_on_change(self.current_bpm)
         self.osc.send_on_change(self.current_bpm)
 
@@ -307,6 +312,34 @@ class BigTempo:
                 high = mid - 1
         return best
 
+    # ── Transport change handler ───────────────────────────────────────────────
+    def _on_transport_change(self, rolling: bool) -> None:
+        """
+        Called on every JACK transport state transition.
+
+        Fires ``midi_send`` and ``osc_send`` entries keyed by:
+        - ``"transport_start"``  – when transport begins rolling
+        - ``"transport_stop"``   – when transport stops
+        - ``"transport_toggle"`` – on either transition
+        """
+        rolling_int = 1 if rolling else 0
+        direction   = "transport_start" if rolling else "transport_stop"
+        self._dbg(f"transport change → {direction} (rolling={rolling_int})")
+
+        for trigger in (direction, "transport_toggle"):
+            midi_spec = self.cfg.get("midi_send", {}).get(trigger)
+            if midi_spec:
+                self._dbg(f"  midi {trigger}: {midi_spec}")
+                self.midi.send_with_context(
+                    midi_spec, bpm=self.current_bpm, raw=0, rolling=rolling_int
+                )
+            osc_spec = self.cfg.get("osc_send", {}).get(trigger)
+            if osc_spec:
+                self._dbg(f"  osc {trigger}: {osc_spec}")
+                self.osc.send_with_context(
+                    osc_spec, bpm=self.current_bpm, raw=0, rolling=rolling_int
+                )
+
     # ── Main update loop ───────────────────────────────────────────────────────
     def _update_loop(self) -> None:
         # 1. Poll JACK ─────────────────────────────────────────────────────────
@@ -314,6 +347,13 @@ class BigTempo:
             try:
                 state, pos = self.jack_client.transport_query()
                 self._rolling = (state == jack.ROLLING)
+
+                # Detect start/stop edges (skip on the very first poll)
+                if self._prev_rolling is None:
+                    self._prev_rolling = self._rolling
+                elif self._rolling != self._prev_rolling:
+                    self._prev_rolling = self._rolling
+                    self._on_transport_change(self._rolling)
 
                 jack_bpm = (
                     pos.get("beats_per_minute")
@@ -331,7 +371,14 @@ class BigTempo:
                         # Only adopt if the user hasn't just changed something
                         if (time.monotonic() - self._last_user_time
                                 > BPM_ADOPT_COOLDOWN):
-                            self.current_bpm = self._clamp(jack_bpm)
+                            adopted = jack_bpm
+                            if self.cfg.get("quantize_jack", False):
+                                adopted = quantize_bpm(adopted, self.cfg)
+                                self._dbg(
+                                    f"JACK adopt: raw={jack_bpm:.3f}"
+                                    f"  quantized={adopted:.3f}"
+                                )
+                            self.current_bpm = self._clamp(adopted)
 
             except Exception as exc:
                 print(f"JACK query error: {exc}", file=sys.stderr)

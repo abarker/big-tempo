@@ -154,6 +154,7 @@ class OscSender:
         osc_spec: dict,
         bpm: float,
         raw: int,
+        rolling: int = 0,
     ) -> None:
         """
         Resolve *osc_spec* against the live *bpm* / *raw* context and send.
@@ -170,8 +171,8 @@ class OscSender:
             self._dbg(f"send_with_context: client is None → no-op (osc_spec={osc_spec})")
             return
         address = str(osc_spec.get("address", "/"))
-        args    = self._resolve_args(osc_spec.get("args", []), bpm, raw)
-        self._dbg(f"send_with_context: address={address!r}  resolved_args={args}")
+        args    = self._resolve_args(osc_spec.get("args", []), bpm, raw, rolling)
+        self._dbg(f"send_with_context: address={address!r}  resolved_args={args}  rolling={rolling}")
         self._send(address, args)
 
     # ── Internals ───────────────────────────────────────────────────────────────
@@ -181,14 +182,25 @@ class OscSender:
         template: list,
         bpm: float,
         raw: int,
+        rolling: int = 0,
     ) -> list[Any]:
-        """Substitute token strings; pass all other values through unchanged."""
+        """
+        Substitute token strings; pass all other values through unchanged.
+
+        Tokens:
+          ``"bpm"``     – current BPM as float
+          ``"raw"``     – incoming CC value 0-127 as int
+          ``"rolling"`` – 1 when transport started, 0 when stopped
+          any other   – passed through unchanged
+        """
         out = []
         for token in template:
             if token == "bpm":
                 out.append(float(bpm))
             elif token == "raw":
                 out.append(int(raw))
+            elif token == "rolling":
+                out.append(int(rolling))
             else:
                 out.append(token)
         return out

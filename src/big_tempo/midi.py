@@ -115,6 +115,7 @@ class MidiHandler:
         midi_spec: dict,
         bpm: float,
         raw: int,
+        rolling: int = 0,
     ) -> None:
         """
         Resolve *midi_spec* against the live *bpm* / *raw* context and send a
@@ -133,7 +134,7 @@ class MidiHandler:
             return
         cc      = int(midi_spec.get("cc",      30))
         channel = int(midi_spec.get("channel",  1))
-        value   = self._resolve_value(midi_spec.get("value", "bpm"), bpm, raw)
+        value   = self._resolve_value(midi_spec.get("value", "bpm"), bpm, raw, rolling)
         try:
             from mididings import engine            # type: ignore[import]
             from mididings.event import CtrlEvent   # type: ignore[import]
@@ -150,18 +151,21 @@ class MidiHandler:
 
     # ── Value resolution ────────────────────────────────────────────────────────
 
-    def _resolve_value(self, token: Any, bpm: float, raw: int) -> int:
+    def _resolve_value(self, token: Any, bpm: float, raw: int, rolling: int = 0) -> int:
         """
         Resolve a value token to a MIDI data byte (0–127).
 
-        ``"bpm"``   – map *bpm* linearly from min_bpm…max_bpm → 0–127
-        ``"raw"``   – pass *raw* through unchanged (clamped to 0–127)
-        <int>       – literal value (clamped to 0–127)
+        ``"bpm"``     – map *bpm* linearly from min_bpm…max_bpm → 0–127
+        ``"raw"``     – pass *raw* through unchanged (clamped to 0–127)
+        ``"rolling"`` – 127 when transport started, 0 when stopped
+        <int>         – literal value (clamped to 0–127)
         """
         if token == "bpm":
             return bpm_to_midi_value(bpm, self.cfg)
         elif token == "raw":
             return max(0, min(127, int(raw)))
+        elif token == "rolling":
+            return 127 if rolling else 0
         else:
             return max(0, min(127, int(token)))
 

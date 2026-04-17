@@ -28,6 +28,9 @@ DEFAULT_CFG: dict = {
     "midi_send": {},
     "osc":      {},
     "osc_send": {},
+    "debug":    False,
+    "quantize":      None,
+    "quantize_jack": False,
 }
 
 DEFAULT_CONFIG_PATH = os.path.expanduser("~/.config/big-tempo/config.py")
@@ -107,6 +110,40 @@ def clamp_bpm(bpm: float, cfg: dict) -> float:
     lo = float(cfg.get("min_bpm", DEFAULT_CFG["min_bpm"]))
     hi = float(cfg.get("max_bpm", DEFAULT_CFG["max_bpm"]))
     return max(lo, min(hi, bpm))
+
+
+def quantize_bpm(bpm: float, cfg: dict) -> float:
+    """
+    Snap *bpm* to the nearest multiple of ``cfg["quantize"]``.
+
+    Returns *bpm* unchanged when ``cfg["quantize"]`` is ``None``, ``0``, or
+    absent (quantization disabled).
+
+    The step can be any positive float:
+
+    * ``1.0``  → integer BPM  (120.0, 121.0, …)
+    * ``0.5``  → half-BPM     (120.0, 120.5, 121.0, …)
+    * ``0.25`` → quarter-BPM  (120.0, 120.25, 120.5, …)
+
+    Quantization is applied *before* clamping when used together, but the
+    helper itself does not clamp – compose with ``clamp_bpm`` as needed.
+
+    >>> quantize_bpm(120.3, {"quantize": 1.0})
+    120.0
+    >>> quantize_bpm(120.7, {"quantize": 1.0})
+    121.0
+    >>> quantize_bpm(120.3, {"quantize": 0.5})
+    120.5
+    >>> quantize_bpm(120.3, {"quantize": None})
+    120.3
+    """
+    step = cfg.get("quantize")
+    if not step:          # None, 0, False → disabled
+        return bpm
+    step = float(step)
+    if step <= 0.0:
+        return bpm
+    return round(bpm / step) * step
 
 
 def bpm_to_midi_value(bpm: float, cfg: dict) -> int:

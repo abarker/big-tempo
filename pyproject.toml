@@ -5,20 +5,32 @@ build-backend = "setuptools.build_meta"
 [project]
 name            = "big-tempo"
 version         = "0.2.0"
-description     = "Big JACK tempo display with MIDI control via mididings"
+description     = "Big JACK tempo display with MIDI control and OSC output"
 readme          = "README.rst"
 requires-python = ">=3.9"
 license         = { text = "MIT" }
 
-# Runtime dependencies – jack and mididings are optional (the app degrades
-# gracefully when they are absent) so they are listed as extras.
-dependencies = []
+# ── Runtime dependencies ───────────────────────────────────────────────────────
+# python-osc is pure Python and installs cleanly via pip.
+# JACK-Client and mididings require C libraries to be present first
+# (see README.rst "Installation" section); they are listed as extras so that
+# a plain `pip install -e .` does not fail on machines without those libraries.
+dependencies = [
+    "python-osc>=1.8",
+]
 
+# ── Optional dependencies ──────────────────────────────────────────────────────
+# Install the C libraries first, then use one of these extras:
+#
+#   sudo apt install python3-jack python3-mididings   # Debian / Ubuntu
+#   pip install -e ".[jack,midi]"                     # then pip
+#
 [project.optional-dependencies]
-jack     = ["JACK-Client>=0.5"]
-midi     = ["mididings>=0.9"]
-full     = ["JACK-Client>=0.5", "mididings>=0.9"]
-dev      = ["pytest>=7", "pytest-cov"]
+jack = ["JACK-Client>=0.5"]
+midi = ["mididings>=0.9"]
+# Convenience groups
+full = ["JACK-Client>=0.5", "mididings>=0.9"]
+dev  = ["pytest>=7", "pytest-cov"]
 
 [project.scripts]
 big-tempo = "big_tempo.__main__:main"
@@ -27,5 +39,5 @@ big-tempo = "big_tempo.__main__:main"
 where = ["src"]
 
 [tool.pytest.ini_options]
-testpaths    = ["tests"]
-addopts      = "-v --tb=short"
+testpaths = ["tests"]
+addopts   = "-v --tb=short"

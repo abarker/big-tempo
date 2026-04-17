@@ -1,7 +1,8 @@
 big-tempo
 =========
 
-A minimalist JACK tempo display with MIDI control via **mididings**.
+A minimalist JACK tempo display with MIDI control via **mididings** and OSC
+output via **python-osc**.
 
 .. code-block:: text
 
@@ -20,10 +21,16 @@ Features
 - **mididings MIDI I/O** (JACK MIDI backend)
 
   - Receive CC to increment, decrement, or set BPM
-  - Send CC on every user-initiated change
+  - Send CC on every user-initiated change, with configurable value encoding
 
+- **python-osc OSC output** for absolute tempo commands (recommended for
+  Hydrogen, which only supports relative BPM over MIDI)
+- **Tempo list** – save BPM snapshots during soundcheck and cycle through
+  them live via a single footswitch
+- Per-receive OSC and MIDI sends – any incoming CC can trigger additional
+  output messages independently of its BPM action
 - Adopts JACK tempo changes from an external master (e.g. Hydrogen)
-  without firing outgoing MIDI
+  without firing outgoing MIDI or OSC
 
 
 Requirements
@@ -43,9 +50,12 @@ Requirements
      - ``pip install JACK-Client`` or distro package ``python3-jack``
    * - ``mididings``
      - ``pip install mididings`` or distro package ``python3-mididings``
+   * - ``python-osc``
+     - ``pip install python-osc`` (pure Python, no C extensions required)
 
-Both ``jack`` and ``mididings`` are **optional** – the app starts without
-them (JACK polling and MIDI are silently disabled).
+``jack``, ``mididings``, and ``python-osc`` are all **optional** – the app
+starts without any of them (each feature degrades gracefully with a one-time
+warning to stderr).
 
 
 Installation
@@ -62,9 +72,10 @@ their Python bindings **before** running ``pip install -e .``::
     sudo apt install libjack-jackd2-dev python3-tk
     pip install JACK-Client mididings
 
-Then install the package in editable mode::
+Then install the package and the OSC library::
 
     pip install -e .
+    pip install python-osc
 
 For development (adds pytest)::
 
@@ -75,23 +86,25 @@ For development (adds pytest)::
    If ``pip install -e .`` fails with a build error for ``JACK-Client`` or
    ``mididings``, install those two packages manually first (see above) and
    then re-run ``pip install -e .``.
+
+
 Running
 -------
 
 .. code-block:: bash
 
-    big-tempo                          # uses ~/.config/big-tempo/config.json
-    big-tempo --config my_config.json
+    big-tempo                          # uses ~/.config/big-tempo/config.py
+    big-tempo --config my_config.py
     big-tempo --no-titlebar --always-on-top
     python -m big_tempo                # also works
 
 All CLI options::
 
-    --config PATH         JSON config file
+    --config PATH         Python dict literal config file
     --width-in FLOAT      Window width in inches
     --height-in FLOAT     Window height in inches
     --update-ms INT       JACK poll interval in milliseconds
-    --font-size INT        Fixed font size in points (overrides auto-fit)
+    --font-size INT       Fixed font size in points (overrides auto-fit)
     --precision INT       Decimal places shown in BPM readout
     --bg COLOR            Background colour (default: white)
     --fg COLOR            Foreground colour (default: black)
@@ -108,36 +121,24 @@ The file must contain a single Python **dict literal**.  Full ``#`` comment
 syntax and trailing commas are supported (unlike JSON).  It is parsed with
 ``ast.literal_eval`` – no arbitrary code is executed.
 
-.. code-block:: python
-
-    # big-tempo configuration
-    {
-        "midi": {
-            "client_name": "big_tempo_midi",
-            "channel": 1,
-        },
-        "buttons": {
-            "increment": 1.0,           # BPM per click or repeat tick
-            "repeat_delay_ms": 400,     # ms before hold-repeat starts
-            "repeat_ms": 80,            # ms between repeat ticks
-        },
-        "min_bpm": 20.0,
-        "max_bpm": 300.0,
-        "receive": {
-            "CC20": {"action": "up",   "amount": 1.0},
-            "CC21": {"action": "down", "amount": 1.0},
-            "CC22": {"action": "set"},  # maps 0-127 → min_bpm-max_bpm
-        },
-        "send": {
-            "on_change": {"cc": 30, "channel": 1},
-        },
-    }
-
 A fully annotated starter file is provided as ``example_config.py`` in the
-repository root.  Copy it to the default location::
+repository root::
 
     mkdir -p ~/.config/big-tempo
     cp example_config.py ~/.config/big-tempo/config.py
+
+.. code-block:: python
+
+    {
+        "midi":    {"client_name": "big_tempo_midi", "channel": 1},
+        "buttons": {"increment": 1.0, "repeat_delay_ms": 400, "repeat_ms": 80},
+        "min_bpm": 20.0,
+        "max_bpm": 300.0,
+        "receive":   { ... },   # see Receive actions below
+        "midi_send": { ... },   # outgoing MIDI CC
+        "osc":       { ... },   # OSC connection info
+        "osc_send":  { ... },   # outgoing OSC messages
+    }
 
 
 Receive actions
@@ -145,7 +146,7 @@ Receive actions
 
 .. list-table::
    :header-rows: 1
-   :widths: 15 50
+   :widths: 15 55
 
    * - Action
      - Effect
@@ -154,90 +155,133 @@ Receive actions
    * - ``down``
      - Subtract ``amount`` BPM
    * - ``set``
-     - Map incoming CC value 0–127 → min_bpm–max_bpm
+     - Proportionally map the incoming CC value (0–127) onto the
+       ``min_bpm``–``max_bpm`` range.  CC=0 → ``min_bpm``, CC=127 →
+       ``max_bpm``, CC=64 → midpoint.  The raw value is **not** used
+       directly as a BPM number.
    * - ``list_append``
      - Save the current BPM to the end of the tempo list
    * - ``list_next``
-     - Advance the tempo-list pointer by one step (wrapping cyclically),
-       apply that BPM, and send the outgoing CC
+     - Advance the tempo-list pointer one step (wrapping), apply that BPM,
+       and fire outgoing MIDI + OSC
    * - ``list_clear``
      - Discard all saved tempos and reset the list pointer
+   * - ``osc_only``
+     - Fire the entry's ``osc_send`` without changing tempo
+   * - ``midi_only``
+     - Fire the entry's ``midi_send`` without changing tempo
+
+Any receive entry may carry both an ``osc_send`` and/or ``midi_send`` key to
+fire extra messages alongside its primary action::
+
+    "receive": {
+        # BPM up + log over OSC
+        "CC20": {"action": "up", "amount": 1.0,
+                 "osc_send": {"address": "/log/up", "args": ["bpm", "raw"]}},
+
+        # Trigger Hydrogen PLAY – no BPM change
+        "CC26": {"action": "osc_only",
+                 "osc_send": {"address": "/Hydrogen/PLAY", "args": []}},
+
+        # Fire a fixed CC to a DAW – no BPM change
+        "CC27": {"action": "midi_only",
+                 "midi_send": {"cc": 50, "channel": 2, "value": 127}},
+    },
+
+
+MIDI send (``midi_send``)
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Fires a MIDI CC on user-initiated BPM changes (buttons, incoming MIDI,
+``list_next``).  JACK-initiated changes do **not** trigger a send.
+
+The ``"value"`` field controls the CC data byte:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 15 45
+
+   * - Token
+     - Result
+   * - ``"bpm"`` *(default)*
+     - Current BPM mapped proportionally to 0–127
+   * - ``"raw"``
+     - Incoming CC value passed straight through (0–127)
+   * - ``<int 0–127>``
+     - Fixed literal value
+
+::
+
+    "midi_send": {
+        "on_change": {"cc": 30, "channel": 1},               # bpm-mapped (default)
+        # "on_change": {"cc": 30, "channel": 1, "value": "bpm"},  # explicit
+        # "on_change": {"cc": 31, "channel": 1, "value": 64},     # always 64
+    },
+
+
+OSC output (``osc`` + ``osc_send``)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Recommended for controlling **Hydrogen's tempo absolutely**.  Hydrogen's
+MIDI interface only supports relative BPM changes (``BPM_CC_RELATIVE``,
+±63 BPM max, error-prone over async transport).  Its OSC interface accepts
+``/Hydrogen/BPM <float>`` as an absolute command.
+
+Enable OSC in Hydrogen: ``Edit → Preferences → OSC`` (default port 9000).
+
+Install the library::
+
+    pip install python-osc
+
+Config::
+
+    "osc": {
+        "host": "127.0.0.1",
+        "port": 9000,
+    },
+    "osc_send": {
+        "on_change": {"address": "/Hydrogen/BPM", "args": ["bpm"]},
+    },
+
+``"args"`` tokens (same convention as per-receive ``osc_send``):
+
+.. list-table::
+   :header-rows: 1
+   :widths: 15 45
+
+   * - Token
+     - Result
+   * - ``"bpm"``
+     - Current BPM as a float
+   * - ``"raw"``
+     - Incoming CC value 0–127 as an int
+   * - ``<literal>``
+     - Passed through unchanged (int, float, str, bool)
+
 
 Tempo list
 ~~~~~~~~~~
 
-The tempo list lets you pre-save a set of BPM values and recall them live
-in order.  A typical workflow::
+Save a set of BPM values during soundcheck and cycle through them live::
 
-    # Soundcheck: dial in each song's tempo, then:
+    # Soundcheck: dial each song's tempo, then:
     CC23  →  list_append   (repeat for each song)
 
     # Performance: one stomp per song to change tempo
-    CC24  →  list_next     (cycles back to start after the last entry)
+    CC24  →  list_next     (wraps back to first entry after the last)
 
     # End of night
     CC25  →  list_clear
 
-Send
-~~~~
-
-``send.on_change`` fires the current BPM (mapped to 0–127) on the
-configured CC number whenever the user changes BPM via the buttons or
-incoming MIDI.  JACK-initiated tempo changes do **not** trigger a send.
+The pointer starts before the first entry.  The first ``list_next`` always
+recalls the first saved tempo.  Appending during a cycle extends the list
+without disturbing the current position.
 
 Button hold-repeat
 ~~~~~~~~~~~~~~~~~~
 
 Holding ▲ or ▼ fires one tick immediately, then waits ``repeat_delay_ms``
-before entering a fast repeat loop at ``repeat_ms`` per tick.  Both
-intervals are configurable per-config.
-
-
-OSC output (Hydrogen absolute tempo)
--------------------------------------
-
-Hydrogen's MIDI interface only exposes *relative* BPM commands
-(``BPM_CC_RELATIVE``), which require knowing the receiver's current tempo to
-compute the right delta – unreliable over async transport.
-
-Hydrogen's OSC interface (``Edit → Preferences → OSC``, default port 9000)
-accepts ``/Hydrogen/BPM <float>`` as an **absolute** tempo command, making it
-the correct channel for deterministic tempo control.
-
-Install the pure-Python OSC library::
-
-    pip install python-osc
-
-Then enable OSC in ``config.py``::
-
-    "osc": {
-        "host":      "127.0.0.1",   # Hydrogen host
-        "port":      9000,           # Hydrogen OSC port (default 9000)
-        "address":   "/Hydrogen/BPM",
-        "on_change": True,           # was False
-    },
-
-Every user-initiated BPM change (buttons, incoming MIDI CC, or
-``list_next``) will then fire both the outgoing MIDI CC **and** the OSC
-message.  JACK-initiated changes still do not trigger either.
-
-If ``python-osc`` is not installed, a one-time warning is printed to stderr
-and the program continues with MIDI-only output.
-
-MIDI relative workaround (not recommended)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-If OSC is unavailable, Hydrogen's ``BPM_CC_RELATIVE`` action interprets CC
-values using the standard signed-encoder convention:
-
-* Values **1–63**  → +1 to +63 BPM
-* Values **65–127** → −63 to −1 BPM
-* Value **0** → no change
-
-Maximum single-message swing is ±63 BPM.  Reaching an arbitrary target
-requires two hops for large jumps, and computing the right delta demands
-certainty about Hydrogen's current tempo – which the async JACK poll cannot
-guarantee.  OSC is strongly preferred.
+before entering a fast repeat loop at ``repeat_ms`` per tick.
 
 
 Development
@@ -245,14 +289,15 @@ Development
 
 .. code-block:: bash
 
-    # Run the full test suite (no JACK server or MIDI hardware required)
+    # Run the full test suite (no JACK, MIDI hardware, or display required)
     pytest
 
     # With coverage report
     pytest --cov=big_tempo --cov-report=term-missing
 
-The tests stub out ``jack`` and ``mididings`` via ``sys.modules`` so they
-run on any machine, including headless CI environments.
+All hardware dependencies (``jack``, ``mididings``, ``python-osc``) are
+stubbed via ``sys.modules`` so the tests run on any machine including
+headless CI environments.
 
 
 Package layout
@@ -269,11 +314,15 @@ Package layout
     │       ├── config.py         defaults, loader, BPM math helpers
     │       ├── cli.py            argument parser
     │       ├── midi.py           MidiHandler (mididings wrapper)
+    │       ├── osc.py            OscSender (python-osc wrapper)
+    │       ├── tempo_list.py     TempoList (cyclic tempo store)
     │       └── app.py            BigTempo tkinter application
     ├── tests/
     │   ├── test_config.py        config loading & merging
     │   ├── test_bpm_math.py      clamp / CC value mapping
-    │   └── test_midi_handler.py  MIDI routing (mididings mocked)
+    │   ├── test_midi_handler.py  MIDI routing & send_with_context
+    │   ├── test_osc.py           OscSender (mocked)
+    │   └── test_tempo_list.py    TempoList cyclic logic
     ├── pyproject.toml
     ├── README.rst
     └── example_config.py

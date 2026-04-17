@@ -195,7 +195,8 @@ MIDI send (``midi_send``)
 Fires a MIDI CC on user-initiated BPM changes (buttons, incoming MIDI,
 ``list_next``).  JACK-initiated changes do **not** trigger a send.
 
-The ``"value"`` field controls the CC data byte:
+The ``"value"`` field is **required** in every ``midi_send`` spec.  Omitting
+it prints a one-time warning to stderr and skips that send entirely.
 
 .. list-table::
    :header-rows: 1
@@ -203,19 +204,20 @@ The ``"value"`` field controls the CC data byte:
 
    * - Token
      - Result
-   * - ``"bpm"`` *(default)*
+   * - ``"bpm"``
      - Current BPM mapped proportionally to 0–127
    * - ``"raw"``
      - Incoming CC value passed straight through (0–127)
+   * - ``"rolling"``
+     - 127 on transport start, 0 on transport stop
    * - ``<int 0–127>``
      - Fixed literal value
 
 ::
 
     "midi_send": {
-        "on_change": {"cc": 30, "channel": 1},               # bpm-mapped (default)
-        # "on_change": {"cc": 30, "channel": 1, "value": "bpm"},  # explicit
-        # "on_change": {"cc": 31, "channel": 1, "value": 64},     # always 64
+        "on_change": {"cc": 30, "channel": 1, "value": "bpm"},
+        # "on_change": {"cc": 31, "channel": 1, "value": 64},    # always 64
     },
 
 

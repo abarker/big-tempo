@@ -75,10 +75,11 @@ class MidiHandler:
     """
 
     def __init__(self, cfg: dict, root, on_receive):
-        self.cfg        = cfg
-        self.root       = root
-        self.on_receive = on_receive
-        self._started   = threading.Event()
+        self.cfg          = cfg
+        self.root         = root
+        self.on_receive   = on_receive
+        self._started     = threading.Event()
+        self._warned_keys: set = set()   # tracks one-time config warnings
 
     # ── Public API ──────────────────────────────────────────────────────────────
 
@@ -126,15 +127,29 @@ class MidiHandler:
         midi_spec : dict with keys:
                     ``"cc"``      – controller number (required)
                     ``"channel"`` – MIDI channel 1-16 (default 1)
-                    ``"value"``   – token or literal (default ``"bpm"``)
+                    ``"value"``   – token or literal (**required**; no default).
+                                  Omitting it prints a warning and skips the send.
         bpm       : current BPM (used to resolve ``"bpm"`` token)
         raw       : incoming CC value 0-127 (used to resolve ``"raw"`` token)
         """
         if not HAS_MIDIDINGS or not self._started.is_set():
             return
+        if "value" not in midi_spec:
+            # Warn once per spec (use the cc number as the key).
+            key = f"missing_value_cc{midi_spec.get('cc', '?')}"
+            if key not in self._warned_keys:
+                self._warned_keys.add(key)
+                print(
+                    f"Warning: midi_send spec for CC {midi_spec.get('cc', '?')} "
+                    f"has no 'value' key – send skipped.\n"
+                    f"  Add one of: \"value\": \"bpm\"  |  \"value\": \"raw\"  "
+                    f"|  \"value\": \"rolling\"  |  \"value\": <int 0-127>",
+                    file=sys.stderr,
+                )
+            return
         cc      = int(midi_spec.get("cc",      30))
         channel = int(midi_spec.get("channel",  1))
-        value   = self._resolve_value(midi_spec.get("value", "bpm"), bpm, raw, rolling)
+        value   = self._resolve_value(midi_spec["value"], bpm, raw, rolling)
         try:
             from mididings import engine            # type: ignore[import]
             from mididings.event import CtrlEvent   # type: ignore[import]

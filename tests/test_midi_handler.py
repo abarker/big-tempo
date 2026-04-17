@@ -81,7 +81,7 @@ CFG_BASE = {
         "CC22": {"action": "set"},
     },
     "midi_send": {
-        "on_change": {"cc": 30, "channel": 1},
+        "on_change": {"cc": 30, "channel": 1, "value": "bpm"},
     },
 }
 
@@ -173,14 +173,30 @@ class TestResolveValue:
         assert h._resolve_value(200, bpm=120.0, raw=0) == 127
         assert h._resolve_value(-1,  bpm=120.0, raw=0) == 0
 
-    def test_default_is_bpm(self):
-        """send_with_context with no value key should default to bpm token."""
+    def test_missing_value_warns_and_skips(self, capsys):
+        """send_with_context with no 'value' key must warn and not send."""
         _reset_engine()
         h = self._h()
-        h.send_with_context({"cc": 30, "channel": 1}, bpm=20.0, raw=0)
-        ctrl_mock = sys.modules["mididings.event"].CtrlEvent
-        _, kwargs = ctrl_mock.call_args
-        assert kwargs.get("value", ctrl_mock.call_args[0][3] if len(ctrl_mock.call_args[0]) > 3 else None) == 0
+        h.send_with_context({"cc": 30, "channel": 1}, bpm=120.0, raw=0)
+        # No MIDI event should have been fired
+        assert not sys.modules["mididings.engine"].output_event.called
+        # A warning should appear on stderr
+        assert "Warning" in capsys.readouterr().err
+
+    def test_missing_value_warns_only_once(self, capsys):
+        """The warning for a given CC must only be printed once."""
+        _reset_engine()
+        h = self._h()
+        for _ in range(3):
+            h.send_with_context({"cc": 30, "channel": 1}, bpm=120.0, raw=0)
+        assert capsys.readouterr().err.count("Warning") == 1
+
+    def test_explicit_bpm_value_still_works(self):
+        """Explicit \"value\": \"bpm\" must still send correctly."""
+        _reset_engine()
+        h = self._h()
+        h.send_with_context({"cc": 30, "channel": 1, "value": "bpm"}, bpm=20.0, raw=0)
+        assert sys.modules["mididings.engine"].output_event.called
 
 
 # ── send_with_context ──────────────────────────────────────────────────────────

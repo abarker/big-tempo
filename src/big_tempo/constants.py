@@ -34,15 +34,15 @@ SEP_COLOR     = "#cccccc"
 
 # ── Tempo list panel ─────────────────────────────────────────────────────────
 LIST_PANEL_H        = 36      # fixed pixel height of the pill row
-LIST_PILL_FONT_SIZE = 11      # pt
-LIST_PILL_PAD_X     = 8      # horizontal padding inside each pill (px)
-LIST_PILL_PAD_Y     = 3      # vertical padding inside each pill (px)
-LIST_PILL_GAP       = 6      # gap between pills (px)
-LIST_PILL_BG        = "#e0e0e0"   # inactive pill background
-LIST_PILL_FG        = "#444444"   # inactive pill text
-LIST_PILL_ACT_BG    = "#C00000"   # active pill background (matches COLOR_ROLLING)
+LIST_PILL_FONT_SIZE = 14      # pt  – legible from a few metres away
+LIST_PILL_PAD_X     = 10     # horizontal padding inside each pill (px)
+LIST_PILL_PAD_Y     = 4      # vertical padding inside each pill (px)
+LIST_PILL_GAP       = 8      # gap between pills (px)
+LIST_PILL_BG        = "#2a2a2a"   # inactive pill background (dark)
+LIST_PILL_FG        = "#c8c8c8"   # inactive pill text (light grey)
+LIST_PILL_ACT_BG    = "#1a7a1a"   # active pill background (green)
 LIST_PILL_ACT_FG    = "#ffffff"   # active pill text
-LIST_SEP_COLOR      = "#cccccc"   # separator line above pill row
+LIST_SEP_COLOR      = "#555555"   # separator line above pill row
 
 # ── Race‑condition cooldown ────────────────────────────────────────────────────
 # Seconds after a user‑initiated BPM change during which JACK tempo updates

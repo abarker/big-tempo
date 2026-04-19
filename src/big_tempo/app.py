@@ -338,7 +338,7 @@ class BigTempo:
                 self._list_sep.pack_forget()
                 self._list_panel.pack_forget()
                 self._panel_visible = False
-                self._resize_to_content()
+                self.root.after(1, self._resize_to_content)
             return
 
         # Show the separator and panel
@@ -370,24 +370,31 @@ class BigTempo:
             self._list_pills.append(label)
 
         if self._panel_visible:
-            self._resize_to_content()
+            self.root.after(1, self._resize_to_content)
 
     def _resize_to_content(self) -> None:
         """
         Resize the root window to exactly fit its current content.
 
-        Called after showing/hiding the list panel.  Uses
-        ``update_idletasks()`` to let the pack geometry manager settle
-        before reading the required height, then restores the user's
-        preferred width so the BPM display doesn't drift.
+        Computes the target height arithmetically:
+          _base_win_h  (unchanged BPM area)
+          + 1 px       (separator line, when panel is visible)
+          + panel's own required height (measured after layout settles)
+
+        Using root.winfo_reqheight() would include the canvas's
+        expand=True preference and incorrectly inflate the window.
         """
         self.root.update_idletasks()
-        req_h = self.root.winfo_reqheight()
         cur_w = self.root.winfo_width()
-        # Prefer the stored base width so rapid appends don't drift
         use_w = self._base_win_w if cur_w < 2 else cur_w
-        self.root.geometry(f"{use_w}x{req_h}")
-        self._dbg(f"_resize_to_content: {use_w}x{req_h}")
+        if self._panel_visible:
+            panel_h = self._list_panel.winfo_reqheight()
+            sep_h   = 1
+            target_h = self._base_win_h + sep_h + panel_h
+        else:
+            target_h = self._base_win_h
+        self.root.geometry(f"{use_w}x{target_h}")
+        self._dbg(f"_resize_to_content: {use_w}x{target_h}")
 
     # ── Drag support (no‑titlebar mode) ───────────────────────────────────────
     def _start_drag(self, event) -> None:

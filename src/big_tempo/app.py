@@ -18,6 +18,15 @@ from big_tempo.config import clamp_bpm, quantize_bpm
 from big_tempo.tempo_list import TempoList
 from big_tempo.constants import (
     BPM_ADOPT_COOLDOWN,
+    LIST_PILL_ACT_BG,
+    LIST_PILL_ACT_FG,
+    LIST_PILL_BG,
+    LIST_PILL_FG,
+    LIST_PILL_FONT_SIZE,
+    LIST_PILL_GAP,
+    LIST_PILL_PAD_X,
+    LIST_PILL_PAD_Y,
+    LIST_SEP_COLOR,
     BORDER_COLOR,
     BORDER_PX,
     BTN_COL_W,
@@ -137,12 +146,15 @@ class BigTempo:
             self._user_set_bpm(midi_value_to_bpm(raw, self.cfg))
         elif action == "list_append":
             self._tempo_list.append(self.current_bpm)
+            self._refresh_list_panel()
         elif action == "list_next":
             bpm = self._tempo_list.next()
             if bpm is not None:
                 self._user_set_bpm(bpm)
+            self._refresh_list_panel()
         elif action == "list_clear":
             self._tempo_list.clear()
+            self._refresh_list_panel()
         elif action == "osc_only":
             pass   # no BPM change; OSC fired below if osc_spec present
         elif action == "midi_only":
@@ -190,6 +202,8 @@ class BigTempo:
             ppi = 96.0
         w = int(self.args.width_in  * ppi)
         h = int(self.args.height_in * ppi)
+        self._base_win_w = w
+        self._base_win_h = h
         self.root.geometry(f"{w}x{h}")
         if self.args.no_titlebar:
             self.root.overrideredirect(True)
@@ -202,12 +216,14 @@ class BigTempo:
         """
         Layout (schematic)
         ------------------
-        outer ┌─────────────────────────────┬─┬──────────┐
-              │  canvas                     │ │ btn_col  │
-              │  [ ● ]  120.0               │ │   ▲      │
-              │                             │ │   ▼      │
-              └─────────────────────────────┴─┴──────────┘
-                                             sep
+        outer (vertical stacker)
+          top_frame ┌──────────────────────────┬─┬──────────┐
+                    │  canvas                  │ │ btn_col  │
+                    │  [ ● ]  120.0            │ │   ▲      │
+                    │                          │ │   ▼      │
+                    └──────────────────────────┴─┴──────────┘
+          list_sep  ────────────────────────────────────────  (1 px, hidden when empty)
+          list_panel  92.0   110.0  [ 120.0 ]  75.0          (hidden when empty)
         """
         pad = BORDER_PX if self.args.no_titlebar else 0
         bg  = self.args.bg
@@ -218,9 +234,14 @@ class BigTempo:
         )
         outer.pack(fill="both", expand=True, padx=pad, pady=pad)
 
+        # ── Top area (canvas + buttons) ───────────────────────────────────────
+        top_frame = tk.Frame(outer, bg=self.root.cget("bg"), bd=0,
+                             highlightthickness=0)
+        top_frame.pack(side="top", fill="both", expand=True)
+
         # ── Button column ─────────────────────────────────────────────────────
         btn_frame = tk.Frame(
-            outer, bg=bg, width=BTN_COL_W, bd=0, highlightthickness=0
+            top_frame, bg=bg, width=BTN_COL_W, bd=0, highlightthickness=0
         )
         btn_frame.pack(side="right", fill="y")
         btn_frame.pack_propagate(False)
@@ -247,11 +268,11 @@ class BigTempo:
             btn.bind("<ButtonRelease-1>", self._btn_release)
 
         # Thin separator between canvas and button column
-        sep = tk.Frame(outer, bg=SEP_COLOR, width=1, bd=0, highlightthickness=0)
+        sep = tk.Frame(top_frame, bg=SEP_COLOR, width=1, bd=0, highlightthickness=0)
         sep.pack(side="right", fill="y")
 
         # ── Canvas (indicator + big text) ─────────────────────────────────────
-        self.canvas = tk.Canvas(outer, bg=bg, highlightthickness=0)
+        self.canvas = tk.Canvas(top_frame, bg=bg, highlightthickness=0)
         self.canvas.pack(side="left", fill="both", expand=True)
 
         self.box = self.canvas.create_rectangle(
@@ -272,6 +293,101 @@ class BigTempo:
             self.context_menu.add_command(label="Quit",   command=self.root.destroy)
             self.context_menu.add_separator()
             self.context_menu.add_command(label="Cancel", command=lambda: None)
+
+        # ── Tempo list panel (hidden until first tempo is saved) ──────────────
+        self._create_list_panel(outer, bg)
+
+    # ── Tempo list panel ───────────────────────────────────────────────────────
+    def _create_list_panel(self, parent: tk.Frame, bg: str) -> None:
+        """
+        Create the horizontal pill row that lives below the main display.
+        Both the separator and the pill frame start hidden (pack_forget);
+        they appear automatically when the first tempo is saved.
+        """
+        self._list_sep = tk.Frame(
+            parent, bg=LIST_SEP_COLOR, height=1, bd=0, highlightthickness=0
+        )
+        self._list_panel = tk.Frame(
+            parent, bg=bg, bd=0, highlightthickness=0
+        )
+        # Widgets are not packed until _refresh_list_panel is first called
+        self._list_pills:   list[tk.Label] = []
+        self._panel_visible: bool           = False
+
+    def _refresh_list_panel(self) -> None:
+        """
+        Rebuild the pill row to reflect the current TempoList state.
+
+        - When the list is empty: hide the separator and panel.
+        - When non-empty: show them and create one Label per saved tempo,
+          highlighting the entry at the current pointer position.
+
+        Called after every list_append / list_next / list_clear action.
+        """
+        bg = self.args.bg
+        tempos = self._tempo_list.tempos
+        idx    = self._tempo_list.index
+
+        # Destroy existing pill labels
+        for pill in self._list_pills:
+            pill.destroy()
+        self._list_pills.clear()
+
+        if not tempos:
+            if self._panel_visible:
+                self._list_sep.pack_forget()
+                self._list_panel.pack_forget()
+                self._panel_visible = False
+                self._resize_to_content()
+            return
+
+        # Show the separator and panel
+        if not self._panel_visible:
+            self._list_sep.pack(side="top", fill="x")
+            self._list_panel.pack(side="top", fill="x")
+            self._panel_visible = True
+
+        # Build pills
+        pill_font = (FONT_FAMILY, LIST_PILL_FONT_SIZE)
+        for i, bpm in enumerate(tempos):
+            active = (i == idx)
+            label  = tk.Label(
+                self._list_panel,
+                text=f"{bpm:.{self.args.precision}f}",
+                font=pill_font,
+                bg=LIST_PILL_ACT_BG if active else LIST_PILL_BG,
+                fg=LIST_PILL_ACT_FG if active else LIST_PILL_FG,
+                padx=LIST_PILL_PAD_X,
+                pady=LIST_PILL_PAD_Y,
+                relief="flat",
+                bd=0,
+            )
+            label.pack(
+                side="left",
+                padx=(LIST_PILL_GAP if i > 0 else LIST_PILL_GAP * 2, 0),
+                pady=4,
+            )
+            self._list_pills.append(label)
+
+        if self._panel_visible:
+            self._resize_to_content()
+
+    def _resize_to_content(self) -> None:
+        """
+        Resize the root window to exactly fit its current content.
+
+        Called after showing/hiding the list panel.  Uses
+        ``update_idletasks()`` to let the pack geometry manager settle
+        before reading the required height, then restores the user's
+        preferred width so the BPM display doesn't drift.
+        """
+        self.root.update_idletasks()
+        req_h = self.root.winfo_reqheight()
+        cur_w = self.root.winfo_width()
+        # Prefer the stored base width so rapid appends don't drift
+        use_w = self._base_win_w if cur_w < 2 else cur_w
+        self.root.geometry(f"{use_w}x{req_h}")
+        self._dbg(f"_resize_to_content: {use_w}x{req_h}")
 
     # ── Drag support (no‑titlebar mode) ───────────────────────────────────────
     def _start_drag(self, event) -> None:

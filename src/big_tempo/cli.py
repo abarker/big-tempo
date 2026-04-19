@@ -1,5 +1,5 @@
 """
-cli.py – command‑line argument parsing for big-tempo.
+cli.py – command-line argument parsing for big-tempo.
 """
 
 import argparse
@@ -16,7 +16,7 @@ from big_tempo.constants import (
 
 def parse_args(argv=None) -> argparse.Namespace:
     """
-    Parse command‑line arguments.
+    Parse command-line arguments.
 
     Parameters
     ----------
@@ -25,30 +25,114 @@ def parse_args(argv=None) -> argparse.Namespace:
     """
     p = argparse.ArgumentParser(
         prog="big-tempo",
-        description="Big JACK tempo display with MIDI control via mididings.",
+        description=(
+            "Big JACK tempo display with MIDI/OSC control.\n"
+            "Config file: ~/.config/big-tempo/config.py  (Python dict literal)."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
+
     p.add_argument(
         "--config",
         default=None,
         metavar="PATH",
-        help="JSON config file (default: ~/.config/big-tempo/config.json)",
+        help=(
+            "Path to a Python dict-literal config file. "
+            "Default: ~/.config/big-tempo/config.py. "
+            "The file is parsed with ast.literal_eval (no arbitrary code executed). "
+            "Run with --config /dev/null to ignore any saved config."
+        ),
     )
-    p.add_argument("--width-in",  type=float, default=DEFAULT_WIDTH_IN)
-    p.add_argument("--height-in", type=float, default=DEFAULT_HEIGHT_IN)
-    p.add_argument("--update-ms", type=int,   default=DEFAULT_UPDATE_MS)
+    p.add_argument(
+        "--width-in",
+        type=float,
+        default=DEFAULT_WIDTH_IN,
+        metavar="INCHES",
+        help=(
+            f"Initial window width in inches (default: {DEFAULT_WIDTH_IN:.2f}). "
+            "The window is resizable; this only sets the starting size."
+        ),
+    )
+    p.add_argument(
+        "--height-in",
+        type=float,
+        default=DEFAULT_HEIGHT_IN,
+        metavar="INCHES",
+        help=(
+            f"Initial window height in inches (default: {DEFAULT_HEIGHT_IN:.2f}). "
+            "The window grows automatically when the tempo list panel appears."
+        ),
+    )
+    p.add_argument(
+        "--update-ms",
+        type=int,
+        default=DEFAULT_UPDATE_MS,
+        metavar="MS",
+        help=(
+            f"How often (in milliseconds) to poll the JACK transport and "
+            f"refresh the display (default: {DEFAULT_UPDATE_MS}ms = "
+            f"{1000//DEFAULT_UPDATE_MS} fps). "
+            "This also sets the maximum latency for incoming MIDI CC events, "
+            "since mididings callbacks are delivered to the main thread at "
+            "the next update tick. "
+            "Lower values (e.g. 20-50ms) reduce MIDI latency at negligible CPU cost. "
+            "Values below ~16ms provide no additional benefit."
+        ),
+    )
     p.add_argument(
         "--font-size",
         type=int,
         default=None,
-        help="Fixed font size in points (overrides auto‑fit)",
+        metavar="PT",
+        help=(
+            "Fix the BPM display font at this size in points. "
+            "By default the font scales automatically to fill the window."
+        ),
     )
-    p.add_argument("--precision", type=int,   default=DEFAULT_PRECISION)
-    p.add_argument("--bg",        default=DEFAULT_BG)
-    p.add_argument("--fg",        default=DEFAULT_FG)
-    p.add_argument("--always-on-top", action="store_true")
+    p.add_argument(
+        "--precision",
+        type=int,
+        default=DEFAULT_PRECISION,
+        metavar="DIGITS",
+        help=(
+            f"Number of decimal places shown in the BPM readout "
+            f"(default: {DEFAULT_PRECISION}). "
+            "Use 0 for integer-only display when quantize=1.0."
+        ),
+    )
+    p.add_argument(
+        "--bg",
+        default=DEFAULT_BG,
+        metavar="COLOR",
+        help=(
+            f"Window background colour (default: {DEFAULT_BG!r}). "
+            "Accepts any Tk colour name (e.g. 'black', '#1a1a1a')."
+        ),
+    )
+    p.add_argument(
+        "--fg",
+        default=DEFAULT_FG,
+        metavar="COLOR",
+        help=(
+            f"Foreground (text and indicator) colour (default: {DEFAULT_FG!r}). "
+            "Accepts any Tk colour name."
+        ),
+    )
+    p.add_argument(
+        "--always-on-top",
+        action="store_true",
+        help=(
+            "Keep the window above all other windows. "
+            "Useful on stage when you want the tempo always visible."
+        ),
+    )
     p.add_argument(
         "--no-titlebar",
         action="store_true",
-        help="Open without a title bar (enables click‑drag to move)",
+        help=(
+            "Remove the window title bar and OS chrome. "
+            "Enables click-drag anywhere on the canvas to reposition the window. "
+            "Right-click shows a Quit/Cancel menu."
+        ),
     )
     return p.parse_args(argv)

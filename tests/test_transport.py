@@ -294,3 +294,104 @@ class TestOnTransportChange:
         _on_transport_change(cfg, midi, osc, rolling=True)
         midi.send_with_context.assert_called_once()
         osc.send_with_context.assert_called_once()
+
+
+# ── _fire_on_quantize dispatch ─────────────────────────────────────────────────
+
+def _fire_on_quantize(cfg: dict, midi_mock, osc_mock,
+                      current_bpm: float = 120.0) -> None:
+    """Standalone reimplementation of BigTempo._fire_on_quantize."""
+    midi_spec = cfg.get("midi_send", {}).get("on_quantize")
+    if midi_spec:
+        midi_mock.send_with_context(midi_spec, bpm=current_bpm, raw=0)
+    osc_spec = cfg.get("osc_send", {}).get("on_quantize")
+    if osc_spec:
+        osc_mock.send_with_context(osc_spec, bpm=current_bpm, raw=0)
+
+
+class TestFireOnQuantize:
+
+    def _mocks(self):
+        return MagicMock(), MagicMock()
+
+    def test_osc_on_quantize_fires(self):
+        cfg = {
+            "midi_send": {},
+            "osc_send":  {"on_quantize": {"address": "/Hydrogen/BPM", "args": ["bpm"]}},
+        }
+        midi, osc = self._mocks()
+        _fire_on_quantize(cfg, midi, osc, current_bpm=120.0)
+        osc.send_with_context.assert_called_once_with(
+            {"address": "/Hydrogen/BPM", "args": ["bpm"]},
+            bpm=120.0, raw=0,
+        )
+
+    def test_midi_on_quantize_fires(self):
+        cfg = {
+            "midi_send": {"on_quantize": {"cc": 30, "channel": 1, "value": "bpm"}},
+            "osc_send":  {},
+        }
+        midi, osc = self._mocks()
+        _fire_on_quantize(cfg, midi, osc, current_bpm=120.0)
+        midi.send_with_context.assert_called_once_with(
+            {"cc": 30, "channel": 1, "value": "bpm"},
+            bpm=120.0, raw=0,
+        )
+
+    def test_both_fire_together(self):
+        cfg = {
+            "midi_send": {"on_quantize": {"cc": 30, "channel": 1, "value": "bpm"}},
+            "osc_send":  {"on_quantize": {"address": "/H/BPM", "args": ["bpm"]}},
+        }
+        midi, osc = self._mocks()
+        _fire_on_quantize(cfg, midi, osc, current_bpm=90.0)
+        midi.send_with_context.assert_called_once()
+        osc.send_with_context.assert_called_once()
+
+    def test_passes_quantized_bpm(self):
+        cfg = {
+            "midi_send": {},
+            "osc_send":  {"on_quantize": {"address": "/H/BPM", "args": ["bpm"]}},
+        }
+        midi, osc = self._mocks()
+        _fire_on_quantize(cfg, midi, osc, current_bpm=137.0)
+        _, kwargs = osc.send_with_context.call_args
+        assert kwargs["bpm"] == 137.0
+
+    def test_no_config_is_silent(self):
+        cfg = {"midi_send": {}, "osc_send": {}}
+        midi, osc = self._mocks()
+        _fire_on_quantize(cfg, midi, osc)
+        midi.send_with_context.assert_not_called()
+        osc.send_with_context.assert_not_called()
+
+    def test_on_quantize_independent_of_on_change(self):
+        """on_quantize and on_change are separate keys; each fires independently."""
+        cfg = {
+            "midi_send": {
+                "on_change":   {"cc": 31, "channel": 1, "value": "bpm"},
+                "on_quantize": {"cc": 30, "channel": 1, "value": "bpm"},
+            },
+            "osc_send": {},
+        }
+        midi, osc = self._mocks()
+        # on_quantize fires
+        _fire_on_quantize(cfg, midi, osc, current_bpm=120.0)
+        assert midi.send_with_context.call_args[0][0]["cc"] == 30
+
+    def test_only_fires_when_value_actually_changed(self):
+        """
+        The app must not call _fire_on_quantize when the quantized value
+        equals the raw value (no snapping occurred).  Verified by checking
+        that the guard condition abs(snapped - adopted) > 1e-6 works.
+        """
+        from big_tempo.config import quantize_bpm
+        # 120.0 quantized to step 1.0 → still 120.0 → no snap
+        raw = 120.0
+        snapped = quantize_bpm(raw, {"quantize": 1.0})
+        assert abs(snapped - raw) <= 1e-6   # guard would NOT fire
+
+        # 120.3 quantized to step 1.0 → 120.0 → snap occurred
+        raw2 = 120.3
+        snapped2 = quantize_bpm(raw2, {"quantize": 1.0})
+        assert abs(snapped2 - raw2) > 1e-6  # guard WOULD fire

@@ -213,11 +213,33 @@ it prints a one-time warning to stderr and skips that send entirely.
    * - ``<int 0–127>``
      - Fixed literal value
 
+Trigger keys inside ``midi_send`` / ``osc_send``:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 18 52
+
+   * - Trigger
+     - When it fires
+   * - ``on_change``
+     - Every user-initiated BPM change (buttons, incoming MIDI, ``list_next``)
+   * - ``on_quantize``
+     - When ``quantize_jack`` snaps a JACK-adopted tempo to the grid and the
+       snapped value differs from the raw value.  Use this to push the
+       corrected tempo back to Hydrogen (or any other target) via MIDI or OSC
+       without also re-sending on every user button press.
+   * - ``transport_start``
+     - JACK transport transitions from stopped to rolling
+   * - ``transport_stop``
+     - JACK transport transitions from rolling to stopped
+   * - ``transport_toggle``
+     - Either transport transition
+
 ::
 
     "midi_send": {
-        "on_change": {"cc": 30, "channel": 1, "value": "bpm"},
-        # "on_change": {"cc": 31, "channel": 1, "value": 64},    # always 64
+        "on_change":   {"cc": 30, "channel": 1, "value": "bpm"},
+        "on_quantize": {"cc": 30, "channel": 1, "value": "bpm"},
     },
 
 
@@ -242,7 +264,8 @@ Config::
         "port": 9000,
     },
     "osc_send": {
-        "on_change": {"address": "/Hydrogen/BPM", "args": ["bpm"]},
+        "on_change":   {"address": "/Hydrogen/BPM", "args": ["bpm"]},
+        "on_quantize": {"address": "/Hydrogen/BPM", "args": ["bpm"]},
     },
 
 ``"args"`` tokens (same convention as per-receive ``osc_send``):

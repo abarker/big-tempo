@@ -312,6 +312,31 @@ class BigTempo:
                 high = mid - 1
         return best
 
+    # ── Quantize-jack send ─────────────────────────────────────────────────────
+    def _fire_on_quantize(self) -> None:
+        """
+        Fire ``midi_send.on_quantize`` and ``osc_send.on_quantize`` when
+        ``quantize_jack`` has snapped a JACK-adopted tempo to a grid value.
+
+        This is intentionally separate from ``on_change`` (which only fires
+        for user-initiated changes) so that the two triggers can be routed
+        independently – e.g. silence ``on_change`` but still push snapped
+        tempos back to Hydrogen via OSC.
+        """
+        self._dbg(
+            f"_fire_on_quantize: sending quantized BPM {self.current_bpm:.3f}"
+        )
+        midi_spec = self.cfg.get("midi_send", {}).get("on_quantize")
+        if midi_spec:
+            self.midi.send_with_context(
+                midi_spec, bpm=self.current_bpm, raw=0
+            )
+        osc_spec = self.cfg.get("osc_send", {}).get("on_quantize")
+        if osc_spec:
+            self.osc.send_with_context(
+                osc_spec, bpm=self.current_bpm, raw=0
+            )
+
     # ── Transport change handler ───────────────────────────────────────────────
     def _on_transport_change(self, rolling: bool) -> None:
         """
@@ -371,14 +396,20 @@ class BigTempo:
                         # Only adopt if the user hasn't just changed something
                         if (time.monotonic() - self._last_user_time
                                 > BPM_ADOPT_COOLDOWN):
-                            adopted = jack_bpm
+                            adopted   = jack_bpm
+                            quantized = False
                             if self.cfg.get("quantize_jack", False):
-                                adopted = quantize_bpm(adopted, self.cfg)
-                                self._dbg(
-                                    f"JACK adopt: raw={jack_bpm:.3f}"
-                                    f"  quantized={adopted:.3f}"
-                                )
+                                snapped = quantize_bpm(adopted, self.cfg)
+                                if abs(snapped - adopted) > 1e-6:
+                                    quantized = True
+                                    self._dbg(
+                                        f"JACK adopt: raw={jack_bpm:.3f}"
+                                        f"  quantized={snapped:.3f}"
+                                    )
+                                adopted = snapped
                             self.current_bpm = self._clamp(adopted)
+                            if quantized:
+                                self._fire_on_quantize()
 
             except Exception as exc:
                 print(f"JACK query error: {exc}", file=sys.stderr)

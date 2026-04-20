@@ -127,6 +127,32 @@ repository root::
     mkdir -p ~/.config/big-tempo
     cp example_config.py ~/.config/big-tempo/config.py
 
+Hot reload
+~~~~~~~~~~
+
+The config file is **reloaded automatically while the program is running**.
+Every update tick (default 100 ms) big-tempo checks the file's modification
+time.  If it has changed, the new config is parsed and applied immediately –
+no restart needed.
+
+A timestamped message is printed to stderr on each reload::
+
+    [14:32:07] config reloaded: /home/user/.config/big-tempo/config.py
+
+**What takes effect immediately:**
+
+- All ``receive`` / ``midi_send`` / ``osc_send`` mappings
+- ``min_bpm``, ``max_bpm``, ``quantize``, ``quantize_jack``
+- ``buttons`` timing (increment, repeat delay/rate)
+- ``debug`` flag
+- OSC ``host`` / ``port`` (a new UDP client is opened automatically)
+
+**Requires a restart:**
+
+- ``midi.client_name`` – the mididings JACK client cannot be renamed
+  at runtime; a note is printed alongside the reload message if this
+  key was changed.
+
 .. code-block:: python
 
     {

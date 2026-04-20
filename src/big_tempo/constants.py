@@ -34,6 +34,8 @@ SEP_COLOR     = "#cccccc"
 
 # ── Tempo list panel ─────────────────────────────────────────────────────────
 LIST_PANEL_H        = 36      # fixed pixel height of the pill row
+LIST_PANEL_H        = 44      # total pixel height reserved for the pill row
+                               # (14pt font + pady=4 + outer pady=4 each side)
 LIST_PILL_FONT_SIZE = 14      # pt  – legible from a few metres away
 LIST_PILL_PAD_X     = 10     # horizontal padding inside each pill (px)
 LIST_PILL_PAD_Y     = 4      # vertical padding inside each pill (px)

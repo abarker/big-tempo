@@ -9,15 +9,17 @@ Responsibilities
 * Delegating MIDI I/O to MidiHandler
 """
 
+import os
 import sys
 import time
 import tkinter as tk
 import tkinter.font as tkfont
 
-from big_tempo.config import clamp_bpm, quantize_bpm
+from big_tempo.config import clamp_bpm, load_config, quantize_bpm
 from big_tempo.tempo_list import TempoList
 from big_tempo.constants import (
     BPM_ADOPT_COOLDOWN,
+    LIST_PANEL_H,
     LIST_PILL_ACT_BG,
     LIST_PILL_ACT_FG,
     LIST_PILL_BG,
@@ -95,11 +97,17 @@ class BigTempo:
         # ── OSC ───────────────────────────────────────────────────────
         self.osc  = OscSender(cfg)
 
+        # ── Config hot-reload ──────────────────────────────────────────────
+        from big_tempo.config import DEFAULT_CONFIG_PATH
+        self._cfg_path = args.config if args.config is not None else DEFAULT_CONFIG_PATH
+        self._cfg_mtime: float = self._get_cfg_mtime()
+
         if cfg.get("debug", False):
             print(f"[app] debug mode ON", file=sys.stderr, flush=True)
             print(f"[app] OSC sender enabled={self.osc.enabled}", file=sys.stderr, flush=True)
             print(f"[app] JACK client={'connected' if self.jack_client else 'not connected'}",
                   file=sys.stderr, flush=True)
+            print(f"[app] watching config: {self._cfg_path}", file=sys.stderr, flush=True)
 
         self._drag_data: dict = {}
         self._setup_window()
@@ -112,6 +120,77 @@ class BigTempo:
         """Print *msg* to stderr when debug mode is enabled."""
         if self.cfg.get("debug", False):
             print(f"[app] {msg}", file=sys.stderr, flush=True)
+
+    def _get_cfg_mtime(self) -> float:
+        """Return the config file's mtime, or 0.0 if the file doesn't exist."""
+        try:
+            return os.stat(self._cfg_path).st_mtime
+        except OSError:
+            return 0.0
+
+    def _check_config_reload(self) -> None:
+        """
+        Compare the config file's current mtime against the stored value.
+        If it has changed, reload and apply the new config.
+
+        Called on every update-loop tick.  os.stat() is a single syscall
+        (~microseconds) so the overhead is negligible.
+
+        What changes live
+        -----------------
+        - All receive / send / osc_send / midi_send mappings
+        - min_bpm, max_bpm, quantize, quantize_jack
+        - buttons (increment, repeat timing)
+        - debug flag
+        - OSC host / port (OscSender is recreated)
+
+        What requires a restart
+        -----------------------
+        - midi.client_name  (mididings JACK client cannot be renamed at runtime)
+        """
+        mtime = self._get_cfg_mtime()
+        if mtime == 0.0 or mtime == self._cfg_mtime:
+            return
+        self._cfg_mtime = mtime
+
+        new_cfg = load_config(self._cfg_path)
+        if new_cfg is None:
+            return   # load_config already printed a warning
+
+        old_osc = self.cfg.get("osc", {})
+        new_osc = new_cfg.get("osc", {})
+        osc_changed = (
+            old_osc.get("host") != new_osc.get("host")
+            or old_osc.get("port") != new_osc.get("port")
+        )
+
+        # Swap the config dict in place on all objects that hold a reference
+        self.cfg       = new_cfg
+        self.midi.cfg  = new_cfg
+        self.osc.cfg   = new_cfg
+
+        # Recreate OscSender only when connection details changed
+        if osc_changed:
+            self.osc = OscSender(new_cfg)
+            self._dbg("OSC client recreated (host/port changed)")
+
+        # Note any settings that need a restart
+        old_midi_name = self.cfg.get("midi", {}).get("client_name")
+        new_midi_name = new_cfg.get("midi", {}).get("client_name")
+        restart_notes = []
+        if old_midi_name != new_midi_name:
+            restart_notes.append(
+                f"  midi.client_name: '{old_midi_name}' → '{new_midi_name}'"
+                " (restart required)"
+            )
+
+        import datetime
+        ts = datetime.datetime.now().strftime("%H:%M:%S")
+        print(f"[{ts}] config reloaded: {self._cfg_path}", file=sys.stderr, flush=True)
+        if restart_notes:
+            for note in restart_notes:
+                print(note, file=sys.stderr, flush=True)
+        self._dbg(f"new cfg keys: {list(new_cfg.keys())}")
 
     def _clamp(self, bpm: float) -> float:
         return clamp_bpm(bpm, self.cfg)
@@ -234,6 +313,13 @@ class BigTempo:
         )
         outer.pack(fill="both", expand=True, padx=pad, pady=pad)
 
+        # ── Tempo list panel (packed FIRST so side='bottom' claim wins) ──────
+        # The pill canvas must be packed before top_frame, because tkinter
+        # allocates space in packing order.  If top_frame (expand=True) is
+        # packed first, it consumes all remaining space and the pill canvas
+        # is left with zero pixels regardless of side='bottom'.
+        self._create_list_panel(outer, bg)
+
         # ── Top area (canvas + buttons) ───────────────────────────────────────
         top_frame = tk.Frame(outer, bg=self.root.cget("bg"), bd=0,
                              highlightthickness=0)
@@ -294,105 +380,111 @@ class BigTempo:
             self.context_menu.add_separator()
             self.context_menu.add_command(label="Cancel", command=lambda: None)
 
-        # ── Tempo list panel (hidden until first tempo is saved) ──────────────
-        self._create_list_panel(outer, bg)
+        # (tempo list panel already created above)
 
     # ── Tempo list panel ───────────────────────────────────────────────────────
     def _create_list_panel(self, parent: tk.Frame, bg: str) -> None:
         """
-        Create the horizontal pill row that lives below the main display.
-        Both the separator and the pill frame start hidden (pack_forget);
-        they appear automatically when the first tempo is saved.
+        Create the pill-row canvas that lives below the main display.
+
+        A tk.Canvas with an explicit height is used instead of a Frame
+        containing Label widgets.  A canvas with height=H *always* occupies
+        exactly H pixels regardless of pack-manager state, which eliminates
+        the layout-measurement races that plagued the Label approach.
         """
-        self._list_sep = tk.Frame(
-            parent, bg=LIST_SEP_COLOR, height=1, bd=0, highlightthickness=0
+        self._pill_canvas = tk.Canvas(
+            parent,
+            height=0,          # starts collapsed
+            bg=bg,
+            bd=0,
+            highlightthickness=0,
         )
-        self._list_panel = tk.Frame(
-            parent, bg=bg, bd=0, highlightthickness=0
-        )
-        # Widgets are not packed until _refresh_list_panel is first called
-        self._list_pills:   list[tk.Label] = []
-        self._panel_visible: bool           = False
+        # Pack at the bottom – this ensures the pack manager allocates the
+        # canvas its configured height BEFORE giving top_frame its expand bonus.
+        # With side="top", top_frame's expand=True would eat all extra space
+        # and compress the canvas to zero pixels.
+        self._pill_canvas.pack(side="bottom", fill="x")
+        self._panel_visible: bool = False
 
     def _refresh_list_panel(self) -> None:
         """
-        Rebuild the pill row to reflect the current TempoList state.
+        Redraw the pill canvas to reflect the current TempoList state.
 
-        - When the list is empty: hide the separator and panel.
-        - When non-empty: show them and create one Label per saved tempo,
-          highlighting the entry at the current pointer position.
-
-        Called after every list_append / list_next / list_clear action.
+        When empty: canvas height → 0 (invisible, takes no space).
+        When non-empty: canvas height → LIST_PANEL_H; pills are drawn
+        as filled rectangles with text overlaid directly on the canvas.
         """
-        bg = self.args.bg
+        import tkinter.font as _tf
         tempos = self._tempo_list.tempos
         idx    = self._tempo_list.index
 
-        # Destroy existing pill labels
-        for pill in self._list_pills:
-            pill.destroy()
-        self._list_pills.clear()
+        self._pill_canvas.delete("all")
 
         if not tempos:
             if self._panel_visible:
-                self._list_sep.pack_forget()
-                self._list_panel.pack_forget()
+                self._pill_canvas.configure(height=0)
                 self._panel_visible = False
-                self.root.after(1, self._resize_to_content)
+                self._resize_to_content()
             return
 
-        # Show the separator and panel
+        # Expand the canvas when first showing
         if not self._panel_visible:
-            self._list_sep.pack(side="top", fill="x")
-            self._list_panel.pack(side="top", fill="x")
+            self._pill_canvas.configure(height=LIST_PANEL_H)
             self._panel_visible = True
+            self._resize_to_content()
 
-        # Build pills
-        pill_font = (FONT_FAMILY, LIST_PILL_FONT_SIZE)
+        # Measure font so we can size pills accurately
+        font_obj = _tf.Font(family=FONT_FAMILY, size=LIST_PILL_FONT_SIZE)
+
+        # Draw separator line along the top edge
+        self._pill_canvas.create_line(
+            0, 0, 9999, 0, fill=LIST_SEP_COLOR, width=1
+        )
+
+        # Draw pills left-to-right
+        x = LIST_PILL_GAP
+        cy = LIST_PANEL_H // 2          # vertical centre of canvas
+        pill_h = LIST_PILL_FONT_SIZE + LIST_PILL_PAD_Y * 2 + 4
+        y0 = cy - pill_h // 2
+        y1 = cy + pill_h // 2
+
         for i, bpm in enumerate(tempos):
             active = (i == idx)
-            label  = tk.Label(
-                self._list_panel,
-                text=f"{bpm:.{self.args.precision}f}",
-                font=pill_font,
-                bg=LIST_PILL_ACT_BG if active else LIST_PILL_BG,
-                fg=LIST_PILL_ACT_FG if active else LIST_PILL_FG,
-                padx=LIST_PILL_PAD_X,
-                pady=LIST_PILL_PAD_Y,
-                relief="flat",
-                bd=0,
-            )
-            label.pack(
-                side="left",
-                padx=(LIST_PILL_GAP if i > 0 else LIST_PILL_GAP * 2, 0),
-                pady=4,
-            )
-            self._list_pills.append(label)
+            label  = f"{bpm:.{self.args.precision}f}"
+            tw     = font_obj.measure(label)
+            x1     = x + tw + LIST_PILL_PAD_X * 2
 
-        if self._panel_visible:
-            self.root.after(1, self._resize_to_content)
+            # Pill background rectangle
+            self._pill_canvas.create_rectangle(
+                x, y0, x1, y1,
+                fill=LIST_PILL_ACT_BG if active else LIST_PILL_BG,
+                outline="",
+            )
+            # Pill text
+            self._pill_canvas.create_text(
+                x + LIST_PILL_PAD_X, cy,
+                text=label,
+                anchor="w",
+                fill=LIST_PILL_ACT_FG if active else LIST_PILL_FG,
+                font=(FONT_FAMILY, LIST_PILL_FONT_SIZE),
+            )
+            x = x1 + LIST_PILL_GAP
 
     def _resize_to_content(self) -> None:
         """
-        Resize the root window to exactly fit its current content.
+        Resize the root window to show or hide the tempo list panel.
 
-        Computes the target height arithmetically:
-          _base_win_h  (unchanged BPM area)
-          + 1 px       (separator line, when panel is visible)
-          + panel's own required height (measured after layout settles)
-
-        Using root.winfo_reqheight() would include the canvas's
-        expand=True preference and incorrectly inflate the window.
+        Uses the fixed constant LIST_PANEL_H rather than measuring the
+        panel at runtime.  Measuring via winfo_reqheight() is unreliable
+        because the pack geometry manager may not have settled yet, causing
+        near-zero readings and the panel appearing invisible even though the
+        pills have been packed.  LIST_PANEL_H is sized to match the 14pt
+        font plus padding used by the pills.
         """
-        self.root.update_idletasks()
-        cur_w = self.root.winfo_width()
-        use_w = self._base_win_w if cur_w < 2 else cur_w
-        if self._panel_visible:
-            panel_h = self._list_panel.winfo_reqheight()
-            sep_h   = 1
-            target_h = self._base_win_h + sep_h + panel_h
-        else:
-            target_h = self._base_win_h
+        cur_w    = self.root.winfo_width()
+        use_w    = self._base_win_w if cur_w < 2 else cur_w
+        target_h = (self._base_win_h + 1 + LIST_PANEL_H
+                    if self._panel_visible else self._base_win_h)
         self.root.geometry(f"{use_w}x{target_h}")
         self._dbg(f"_resize_to_content: {use_w}x{target_h}")
 
@@ -490,6 +582,9 @@ class BigTempo:
 
     # ── Main update loop ───────────────────────────────────────────────────────
     def _update_loop(self) -> None:
+        # 0. Config hot-reload ─────────────────────────────────────────────────
+        self._check_config_reload()
+
         # 1. Poll JACK ─────────────────────────────────────────────────────────
         if self.jack_client:
             try:

@@ -52,6 +52,29 @@ class TempoList:
         """
         self._tempos.append(float(bpm))
 
+    def replace_current(self, bpm: float) -> bool:
+        """
+        Overwrite the entry at the current pointer position with *bpm*.
+
+        Returns ``True`` if the list was non-empty and the pointer was
+        pointing at an entry (index ≥ 0); ``False`` otherwise (no change
+        is made when the list is empty or the pointer has not advanced).
+
+        >>> tl = TempoList()
+        >>> tl.replace_current(120.0)   # empty list
+        False
+        >>> tl.append(100.0); tl.next()
+        100.0
+        >>> tl.replace_current(110.0)
+        True
+        >>> tl.current
+        110.0
+        """
+        if not self._tempos or self._index < 0:
+            return False
+        self._tempos[self._index] = float(bpm)
+        return True
+
     def next(self) -> float | None:
         """
         Advance the pointer by one step (wrapping cyclically) and return the

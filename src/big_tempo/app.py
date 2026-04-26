@@ -207,6 +207,15 @@ class BigTempo:
         self.midi.send_on_change(self.current_bpm)
         self.osc.send_on_change(self.current_bpm)
 
+        # Update the active tempo-list entry to match the new BPM
+        if self.cfg.get("list_update_on_change", True):
+            if self._tempo_list.replace_current(self.current_bpm):
+                self._dbg(
+                    f"list_update_on_change: slot {self._tempo_list.index} "
+                    f"→ {self.current_bpm:.3f}"
+                )
+                self._refresh_list_panel()
+
     # ── MIDI receive (runs on tkinter main thread) ─────────────────────────────
     def _on_midi_receive(
         self,

@@ -328,6 +328,13 @@ The pointer starts before the first entry.  The first ``list_next`` always
 recalls the first saved tempo.  Appending during a cycle extends the list
 without disturbing the current position.
 
+**Editing a saved tempo live** – by default (``"list_update_on_change": True``),
+any user-initiated BPM change (button press or incoming MIDI) while a tempo
+list entry is active overwrites that entry with the new value.  The pill
+display updates immediately.  This lets you nudge a saved tempo on the fly
+without having to clear and re-capture.  Set the option to ``False`` if you
+want saved tempos to stay fixed once captured.
+
 Button hold-repeat
 ~~~~~~~~~~~~~~~~~~
 

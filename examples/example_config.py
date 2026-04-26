@@ -44,8 +44,15 @@
     #   0.25  → quarter-BPM      (120.0, 120.25, 120.5 …)
     #   5.0   → 5-BPM steps      (120, 125, 130 …)
     #   None  → disabled (allow any float, default)
-    "quantize":      None,
-    "quantize_jack": False,  # set True to also quantize JACK-adopted tempos
+    "quantize":               None,
+    "quantize_jack":          False,  # set True to also quantize JACK-adopted tempos
+
+    # ── Tempo list: update current slot on BPM change ─────────────────────────
+    # When True (default), any user-initiated BPM change (button, incoming MIDI)
+    # while a tempo list entry is active will overwrite that entry with the new
+    # value.  Useful for nudging a saved tempo without re-capturing it.
+    # Set to False if you want the saved tempos to stay fixed once captured.
+    "list_update_on_change":  True,
 
     # ── Incoming MIDI CC mappings ──────────────────────────────────────────────
     # Key format: "CC<number>"

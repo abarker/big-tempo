@@ -164,6 +164,10 @@ class BigTempo:
             or old_osc.get("port") != new_osc.get("port")
         )
 
+        # Capture values that need a before/after comparison *before* the swap
+        old_midi_name = self.cfg.get("midi", {}).get("client_name")
+        new_midi_name = new_cfg.get("midi", {}).get("client_name")
+
         # Swap the config dict in place on all objects that hold a reference
         self.cfg       = new_cfg
         self.midi.cfg  = new_cfg
@@ -173,10 +177,6 @@ class BigTempo:
         if osc_changed:
             self.osc = OscSender(new_cfg)
             self._dbg("OSC client recreated (host/port changed)")
-
-        # Note any settings that need a restart
-        old_midi_name = self.cfg.get("midi", {}).get("client_name")
-        new_midi_name = new_cfg.get("midi", {}).get("client_name")
         restart_notes = []
         if old_midi_name != new_midi_name:
             restart_notes.append(

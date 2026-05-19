@@ -138,11 +138,11 @@ class BigTempo:
 
         What changes live
         -----------------
-        - All receive / send / osc_send / midi_send mappings
+        - All receive / send mappings
         - min_bpm, max_bpm, quantize, quantize_jack
         - buttons (increment, repeat timing)
         - debug flag
-        - OSC host / port (OscSender is recreated)
+        - OSC targets (OscSender pool is rebuilt fresh on every reload)
 
         What requires a restart
         -----------------------
@@ -157,26 +157,15 @@ class BigTempo:
         if new_cfg is None:
             return   # load_config already printed a warning
 
-        old_osc = self.cfg.get("osc", {})
-        new_osc = new_cfg.get("osc", {})
-        osc_changed = (
-            old_osc.get("host") != new_osc.get("host")
-            or old_osc.get("port") != new_osc.get("port")
-        )
-
         # Capture values that need a before/after comparison *before* the swap
         old_midi_name = self.cfg.get("midi", {}).get("client_name")
         new_midi_name = new_cfg.get("midi", {}).get("client_name")
 
         # Swap the config dict in place on all objects that hold a reference
-        self.cfg       = new_cfg
-        self.midi.cfg  = new_cfg
-        self.osc.cfg   = new_cfg
-
-        # Recreate OscSender only when connection details changed
-        if osc_changed:
-            self.osc = OscSender(new_cfg)
-            self._dbg("OSC client recreated (host/port changed)")
+        self.cfg      = new_cfg
+        self.midi.cfg = new_cfg
+        # Fresh OscSender on every reload – pool is lazy so this is free
+        self.osc      = OscSender(new_cfg)
         restart_notes = []
         if old_midi_name != new_midi_name:
             restart_notes.append(
@@ -195,6 +184,33 @@ class BigTempo:
     def _clamp(self, bpm: float) -> float:
         return clamp_bpm(bpm, self.cfg)
 
+    def _fire_send(
+        self,
+        trigger: str,
+        bpm: float,
+        raw: int = 0,
+        rolling: int = 0,
+    ) -> None:
+        """
+        Iterate the unified ``cfg["send"][trigger]`` list and dispatch each
+        action to the appropriate handler.
+
+        ``"send": "MIDI"`` → ``self.midi.send_with_context``
+        ``"send": "OSC"``  → ``self.osc.send_with_context``
+        """
+        for spec in self.cfg.get("send", {}).get(trigger, []):
+            send_type = spec.get("send", "")
+            if send_type == "MIDI":
+                self._dbg(f"  → MIDI CC{spec.get('cc')}  trigger={trigger}")
+                self.midi.send_with_context(spec, bpm=bpm, raw=raw, rolling=rolling)
+            elif send_type == "OSC":
+                self._dbg(
+                    f"  → OSC {spec.get('address')}"
+                    f" → {spec.get('host')}:{spec.get('port')}"
+                    f"  trigger={trigger}"
+                )
+                self.osc.send_with_context(spec, bpm=bpm, raw=raw, rolling=rolling)
+
     def _user_set_bpm(self, bpm: float) -> None:
         """Apply a user‑initiated BPM change and fire outgoing MIDI CC and OSC."""
         quantized            = quantize_bpm(bpm, self.cfg)
@@ -204,8 +220,7 @@ class BigTempo:
             f"_user_set_bpm: raw={bpm:.3f}  quantized={quantized:.3f}"
             f"  clamped={self.current_bpm:.3f}"
         )
-        self.midi.send_on_change(self.current_bpm)
-        self.osc.send_on_change(self.current_bpm)
+        self._fire_send("on_change", bpm=self.current_bpm, raw=0)
 
         # Update the active tempo-list entry to match the new BPM
         if self.cfg.get("list_update_on_change", True):
@@ -222,9 +237,9 @@ class BigTempo:
         action: str,
         amount: float,
         raw: int,
-        osc_spec:  dict | None = None,
-        midi_spec: dict | None = None,
+        send_specs: list | None = None,
     ) -> None:
+        self._dbg(f"MIDI receive: action={action!r}  raw={raw}  amount={amount}")
         if action == "up":
             self._user_set_bpm(self.current_bpm + amount)
         elif action == "down":
@@ -244,14 +259,16 @@ class BigTempo:
             self._tempo_list.clear()
             self._refresh_list_panel()
         elif action == "osc_only":
-            pass   # no BPM change; OSC fired below if osc_spec present
+            pass   # no BPM change; sends fired below if present
         elif action == "midi_only":
-            pass   # no BPM change; MIDI fired below if midi_spec present
+            pass   # no BPM change; sends fired below if present
         # Fire per-receive sends (independent of action type)
-        if osc_spec:
-            self.osc.send_with_context(osc_spec, bpm=self.current_bpm, raw=raw)
-        if midi_spec:
-            self.midi.send_with_context(midi_spec, bpm=self.current_bpm, raw=raw)
+        for spec in (send_specs or []):
+            send_type = spec.get("send", "")
+            if send_type == "OSC":
+                self.osc.send_with_context(spec, bpm=self.current_bpm, raw=raw)
+            elif send_type == "MIDI":
+                self.midi.send_with_context(spec, bpm=self.current_bpm, raw=raw)
 
     # ── Button hold‑repeat ─────────────────────────────────────────────────────
     def _btn_press(self, direction: int) -> None:
@@ -539,8 +556,8 @@ class BigTempo:
     # ── Quantize-jack send ─────────────────────────────────────────────────────
     def _fire_on_quantize(self) -> None:
         """
-        Fire ``midi_send.on_quantize`` and ``osc_send.on_quantize`` when
-        ``quantize_jack`` has snapped a JACK-adopted tempo to a grid value.
+        Fire ``send.on_quantize`` actions when ``quantize_jack`` has snapped a
+        JACK-adopted tempo to a grid value.
 
         This is intentionally separate from ``on_change`` (which only fires
         for user-initiated changes) so that the two triggers can be routed
@@ -550,23 +567,14 @@ class BigTempo:
         self._dbg(
             f"_fire_on_quantize: sending quantized BPM {self.current_bpm:.3f}"
         )
-        midi_spec = self.cfg.get("midi_send", {}).get("on_quantize")
-        if midi_spec:
-            self.midi.send_with_context(
-                midi_spec, bpm=self.current_bpm, raw=0
-            )
-        osc_spec = self.cfg.get("osc_send", {}).get("on_quantize")
-        if osc_spec:
-            self.osc.send_with_context(
-                osc_spec, bpm=self.current_bpm, raw=0
-            )
+        self._fire_send("on_quantize", bpm=self.current_bpm, raw=0)
 
     # ── Transport change handler ───────────────────────────────────────────────
     def _on_transport_change(self, rolling: bool) -> None:
         """
         Called on every JACK transport state transition.
 
-        Fires ``midi_send`` and ``osc_send`` entries keyed by:
+        Fires ``send`` entries keyed by:
         - ``"transport_start"``  – when transport begins rolling
         - ``"transport_stop"``   – when transport stops
         - ``"transport_toggle"`` – on either transition
@@ -574,20 +582,8 @@ class BigTempo:
         rolling_int = 1 if rolling else 0
         direction   = "transport_start" if rolling else "transport_stop"
         self._dbg(f"transport change → {direction} (rolling={rolling_int})")
-
         for trigger in (direction, "transport_toggle"):
-            midi_spec = self.cfg.get("midi_send", {}).get(trigger)
-            if midi_spec:
-                self._dbg(f"  midi {trigger}: {midi_spec}")
-                self.midi.send_with_context(
-                    midi_spec, bpm=self.current_bpm, raw=0, rolling=rolling_int
-                )
-            osc_spec = self.cfg.get("osc_send", {}).get(trigger)
-            if osc_spec:
-                self._dbg(f"  osc {trigger}: {osc_spec}")
-                self.osc.send_with_context(
-                    osc_spec, bpm=self.current_bpm, raw=0, rolling=rolling_int
-                )
+            self._fire_send(trigger, bpm=self.current_bpm, raw=0, rolling=rolling_int)
 
     # ── Main update loop ───────────────────────────────────────────────────────
     def _update_loop(self) -> None:

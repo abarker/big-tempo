@@ -56,10 +56,10 @@ def _make_handler(cfg: dict):
     root = MagicMock()
     root.after = lambda delay, fn: fn()
 
-    def on_receive(action, amount, raw, osc_spec=None, midi_spec=None):
+    def on_receive(action, amount, raw, send_specs=None):
         received.append({
             "action": action, "amount": amount, "raw": raw,
-            "osc_spec": osc_spec, "midi_spec": midi_spec,
+            "send_specs": send_specs,
         })
 
     handler = MidiHandler(cfg, root, on_receive)
@@ -80,9 +80,7 @@ CFG_BASE = {
         "CC21": {"action": "down", "amount": 2.5},
         "CC22": {"action": "set"},
     },
-    "midi_send": {
-        "on_change": {"cc": 30, "channel": 1, "value": "bpm"},
-    },
+    "send": {},
 }
 
 
@@ -112,29 +110,43 @@ class TestHandleCtrl:
         h._handle_ctrl(_fake_event(99, 64))
         assert received == []
 
-    def test_osc_spec_forwarded(self):
+    def test_send_specs_forwarded(self):
+        specs = [
+            {"send": "OSC", "host": "127.0.0.1", "port": 9000,
+             "address": "/x", "args": ["bpm"]},
+        ]
         cfg = {**CFG_BASE, "receive": {
-            "CC20": {"action": "up", "amount": 1.0,
-                     "osc_send": {"address": "/x", "args": ["bpm"]}},
+            "CC20": {"action": "up", "amount": 1.0, "send": specs},
         }}
         h, received = _make_handler(cfg)
         h._handle_ctrl(_fake_event(20, 0))
-        assert received[0]["osc_spec"] == {"address": "/x", "args": ["bpm"]}
+        assert received[0]["send_specs"] == specs
 
-    def test_midi_spec_forwarded(self):
+    def test_midi_send_spec_forwarded(self):
+        specs = [{"send": "MIDI", "cc": 50, "channel": 2, "value": "raw"}]
         cfg = {**CFG_BASE, "receive": {
-            "CC20": {"action": "up", "amount": 1.0,
-                     "midi_send": {"cc": 50, "channel": 2, "value": "raw"}},
+            "CC20": {"action": "up", "amount": 1.0, "send": specs},
         }}
         h, received = _make_handler(cfg)
         h._handle_ctrl(_fake_event(20, 77))
-        assert received[0]["midi_spec"] == {"cc": 50, "channel": 2, "value": "raw"}
+        assert received[0]["send_specs"] == specs
 
-    def test_both_specs_none_when_absent(self):
+    def test_mixed_send_specs_forwarded(self):
+        specs = [
+            {"send": "MIDI", "cc": 50, "channel": 1, "value": "raw"},
+            {"send": "OSC",  "host": "127.0.0.1", "port": 9000, "address": "/y"},
+        ]
+        cfg = {**CFG_BASE, "receive": {
+            "CC20": {"action": "up", "amount": 1.0, "send": specs},
+        }}
+        h, received = _make_handler(cfg)
+        h._handle_ctrl(_fake_event(20, 0))
+        assert received[0]["send_specs"] == specs
+
+    def test_send_specs_empty_list_when_absent(self):
         h, received = _make_handler(CFG_BASE)
         h._handle_ctrl(_fake_event(20, 0))
-        assert received[0]["osc_spec"]  is None
-        assert received[0]["midi_spec"] is None
+        assert received[0]["send_specs"] == []
 
     def test_multiple_events_accumulated(self):
         h, received = _make_handler(CFG_BASE)
@@ -150,9 +162,7 @@ class TestResolveValue:
 
     def test_bpm_token_maps_to_midi(self):
         h = self._h()
-        # 20 BPM = min → 0
-        assert h._resolve_value("bpm", bpm=20.0, raw=0) == 0
-        # 300 BPM = max → 127
+        assert h._resolve_value("bpm", bpm=20.0,  raw=0) == 0
         assert h._resolve_value("bpm", bpm=300.0, raw=0) == 127
 
     def test_raw_token_passes_through(self):
@@ -178,9 +188,7 @@ class TestResolveValue:
         _reset_engine()
         h = self._h()
         h.send_with_context({"cc": 30, "channel": 1}, bpm=120.0, raw=0)
-        # No MIDI event should have been fired
         assert not sys.modules["mididings.engine"].output_event.called
-        # A warning should appear on stderr
         assert "Warning" in capsys.readouterr().err
 
     def test_missing_value_warns_only_once(self, capsys):
@@ -192,7 +200,6 @@ class TestResolveValue:
         assert capsys.readouterr().err.count("Warning") == 1
 
     def test_explicit_bpm_value_still_works(self):
-        """Explicit \"value\": \"bpm\" must still send correctly."""
         _reset_engine()
         h = self._h()
         h.send_with_context({"cc": 30, "channel": 1, "value": "bpm"}, bpm=20.0, raw=0)
@@ -215,6 +222,15 @@ class TestSendWithContext:
         h._started.clear()
         h.send_with_context({"cc": 30, "channel": 1}, bpm=120.0, raw=0)
         assert not sys.modules["mididings.engine"].output_event.called
+
+    def test_send_type_discriminator_ignored(self):
+        """The 'send' discriminator key must not interfere with cc/channel/value."""
+        h = _make_handler(CFG_BASE)[0]
+        h.send_with_context(
+            {"send": "MIDI", "cc": 30, "channel": 1, "value": 64},
+            bpm=120.0, raw=0,
+        )
+        assert sys.modules["mididings.engine"].output_event.called
 
     def test_channel_passed_to_ctrl_event(self):
         h = _make_handler(CFG_BASE)[0]
@@ -239,29 +255,6 @@ class TestSendWithContext:
                             bpm=120.0, raw=55)
         _, kwargs = ctrl_mock.call_args
         assert kwargs.get("value") == 55
-
-
-# ── send_on_change ─────────────────────────────────────────────────────────────
-
-class TestSendOnChange:
-    def setup_method(self): _reset_engine()
-
-    def test_fires_when_on_change_configured(self):
-        h = _make_handler(CFG_BASE)[0]
-        h.send_on_change(20.0)   # min BPM → value 0
-        assert sys.modules["mididings.engine"].output_event.called
-
-    def test_noop_when_on_change_absent(self):
-        cfg = {**CFG_BASE, "midi_send": {}}
-        h = _make_handler(cfg)[0]
-        h.send_on_change(120.0)
-        assert not sys.modules["mididings.engine"].output_event.called
-
-    def test_send_bpm_alias_works(self):
-        """send_bpm() must still work as an alias for send_on_change()."""
-        h = _make_handler(CFG_BASE)[0]
-        h.send_bpm(20.0)
-        assert sys.modules["mididings.engine"].output_event.called
 
 
 # ── No-mididings path ──────────────────────────────────────────────────────────

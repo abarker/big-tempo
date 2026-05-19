@@ -3,64 +3,36 @@ osc.py – general-purpose OSC sender for big-tempo.
 
 Design
 ------
-``OscSender`` wraps a single UDP OSC client (one host + port pair, taken from
-``cfg["osc"]``) and exposes two public methods:
+``OscSender`` maintains a pool of UDP OSC clients keyed by ``(host, port)``
+target.  Clients are created on first use and reused for every subsequent
+send to the same target.  This allows a single ``"send"`` action list to fan
+out to multiple OSC destinations with no setup overhead at send time.
 
-``send_with_context(osc_spec, bpm, raw)``
-    Resolve the ``"args"`` list in *osc_spec* – substituting token strings
-    ``"bpm"`` and ``"raw"`` with live values – then fire the message.
-    Used both by the ``on_change`` trigger and per-receive ``osc_send`` specs.
+``send_with_context(spec, bpm, raw, rolling)``
+    Read ``"host"``, ``"port"``, and ``"address"`` directly from *spec*;
+    resolve the ``"args"`` list against the live context; then fire the
+    message via the matching pool entry.
 
-``send_on_change(bpm)``
-    Convenience: look up ``cfg["osc_send"]["on_change"]`` and call
-    ``send_with_context`` with ``raw=0`` (raw CC is not meaningful here).
-
-Debug
------
-Set ``"debug": True`` in the config file to print a trace of every step to
-stderr:  config loading, client construction, every send attempt, and the
-resolved address + args for each message.
-
-Why python-osc instead of mididings OSC
------------------------------------------
-mididings' ``mididings.extra.osc`` is designed for *receiving* OSC to
-remote-control mididings itself (switching patches, etc.).  Sending arbitrary
-OSC as a side-effect of a MIDI event would require a ``Call()`` wrapping a
-pyliblo (C extension) send – adding a compiled dependency for no gain over
-the pure-Python python-osc library.
+Because connection details travel with each action spec there is no global
+``"osc"`` config block.  The pool is populated lazily and a fresh
+``OscSender`` is created on every config hot-reload (cheap – no sockets
+are opened until the first send).
 
 Dependency
 ----------
-``python-osc`` (pure Python, no C extensions)::
-
-    pip install python-osc
-
-Degrades gracefully when absent: all methods are callable but nothing is
-transmitted and a one-time warning is printed.
-
-Config layout
--------------
-``cfg["osc"]``      – connection info (host, port)
-``cfg["osc_send"]`` – trigger → message mappings
-``cfg["debug"]``    – set True to enable verbose stderr tracing
-
-Example::
-
-    "osc": {
-        "host": "127.0.0.1",
-        "port": 9000,
-    },
-    "osc_send": {
-        "on_change": {"address": "/Hydrogen/BPM", "args": ["bpm"]},
-    },
-    "debug": True,
+``python-osc`` is a required runtime dependency listed in ``pyproject.toml``.
+The import is wrapped in a try/except so that the module can still be
+imported on a machine where the library is absent (e.g. a CI environment
+that only runs config/BPM tests), but OSC output will be disabled and a
+warning will be printed.
 
 Arg tokens
 ----------
 Inside an ``"args"`` list, string tokens are substituted at send time:
 
-``"bpm"``   – current BPM as a float
-``"raw"``   – raw incoming CC value 0-127 as an int
+``"bpm"``     – current BPM as a float
+``"raw"``     – raw incoming CC value 0-127 as an int
+``"rolling"`` – 1 when transport started, 0 when stopped
 any other value – passed through unchanged (int, float, str, bool)
 """
 
@@ -81,31 +53,22 @@ DEFAULT_PORT = 9000
 
 class OscSender:
     """
-    Single-destination OSC sender.
+    Multi-destination OSC sender with a lazy (host, port) pool.
 
     Parameters
     ----------
     cfg : full application config dict.
-          Reads ``cfg["osc"]`` for host/port, ``cfg["osc_send"]`` for
-          trigger→message mappings, and ``cfg["debug"]`` for verbose tracing.
+          Used only for the ``"debug"`` flag; OSC connection details are now
+          read from individual action specs at send time.
     """
 
     def __init__(self, cfg: dict) -> None:
-        self.cfg     = cfg
-        self._client = None
+        self.cfg    = cfg
+        self._pool: dict[tuple[str, int], Any] = {}   # (host, port) → client | None
         self._warned = False
 
-        self._dbg("OscSender.__init__: starting")
+        self._dbg("OscSender.__init__")
         self._dbg(f"  HAS_OSC (python-osc installed) = {HAS_OSC}")
-
-        osc_cfg = cfg.get("osc")   # None if section absent entirely
-        if osc_cfg is None:
-            self._dbg("  cfg['osc'] absent → OSC disabled (dormant)")
-            return
-
-        osc_send = cfg.get("osc_send", {})
-        self._dbg(f"  cfg['osc']      = {osc_cfg}")
-        self._dbg(f"  cfg['osc_send'] = {osc_send}")
 
         if not HAS_OSC:
             print(
@@ -113,69 +76,71 @@ class OscSender:
                 "  pip install python-osc",
                 file=sys.stderr,
             )
-            return
-
-        host = str(osc_cfg.get("host", DEFAULT_HOST))
-        port = int(osc_cfg.get("port", DEFAULT_PORT))
-        try:
-            from pythonosc.udp_client import SimpleUDPClient  # type: ignore[import]
-            self._client = SimpleUDPClient(host, port)
-            self._dbg(f"  UDP client created → {host}:{port}  ✓")
-        except Exception as exc:
-            print(
-                f"Warning: cannot create OSC client ({host}:{port}): {exc}",
-                file=sys.stderr,
-            )
 
     # ── Public API ──────────────────────────────────────────────────────────────
 
     @property
     def enabled(self) -> bool:
-        """True when the OSC UDP client was created successfully."""
-        return self._client is not None
-
-    def send_on_change(self, bpm: float) -> None:
-        """
-        Fire the ``osc_send.on_change`` message (if configured).
-
-        Called by ``_user_set_bpm()`` on every user-initiated BPM change.
-        ``raw`` is meaningless in this context and is passed as 0.
-        """
-        self._dbg(f"send_on_change(bpm={bpm:.3f}): client={'ready' if self._client else 'NONE'}")
-        spec = self.cfg.get("osc_send", {}).get("on_change")
-        if spec is None:
-            self._dbg("  osc_send.on_change not configured → no-op")
-            return
-        self._dbg(f"  spec = {spec}")
-        self.send_with_context(spec, bpm=bpm, raw=0)
+        """True when the python-osc library is available."""
+        return HAS_OSC
 
     def send_with_context(
         self,
-        osc_spec: dict,
+        spec: dict,
         bpm: float,
         raw: int,
         rolling: int = 0,
     ) -> None:
         """
-        Resolve *osc_spec* against the live *bpm* / *raw* context and send.
+        Resolve *spec* against the live *bpm* / *raw* / *rolling* context
+        and send the OSC message.
 
         Parameters
         ----------
-        osc_spec : dict with keys:
-                   ``"address"`` – OSC address string (required)
-                   ``"args"``    – list of arg tokens / literals (optional)
+        spec : dict with keys:
+               ``"host"``    – target hostname / IP  (default ``"127.0.0.1"``)
+               ``"port"``    – target UDP port       (default ``9000``)
+               ``"address"`` – OSC address string    (required)
+               ``"args"``    – list of arg tokens / literals (optional)
         bpm      : current BPM value (substituted for ``"bpm"`` tokens)
         raw      : raw CC value 0-127  (substituted for ``"raw"`` tokens)
+        rolling  : 1 when transport started, 0 when stopped
         """
-        if self._client is None:
-            self._dbg(f"send_with_context: client is None → no-op (osc_spec={osc_spec})")
+        if not HAS_OSC:
             return
-        address = str(osc_spec.get("address", "/"))
-        args    = self._resolve_args(osc_spec.get("args", []), bpm, raw, rolling)
-        self._dbg(f"send_with_context: address={address!r}  resolved_args={args}  rolling={rolling}")
-        self._send(address, args)
+        host    = str(spec.get("host", DEFAULT_HOST))
+        port    = int(spec.get("port", DEFAULT_PORT))
+        address = str(spec.get("address", "/"))
+        args    = self._resolve_args(spec.get("args", []), bpm, raw, rolling)
+        self._dbg(
+            f"send_with_context: {host}:{port}  address={address!r}"
+            f"  resolved_args={args}  rolling={rolling}"
+        )
+        client = self._get_client(host, port)
+        if client is None:
+            return
+        self._send(client, address, args)
 
     # ── Internals ───────────────────────────────────────────────────────────────
+
+    def _get_client(self, host: str, port: int):
+        """
+        Return the cached UDP client for *(host, port)*, creating it on first
+        use.  Stores ``None`` on failure so we don't retry a broken target.
+        """
+        key = (host, port)
+        if key not in self._pool:
+            try:
+                from pythonosc.udp_client import SimpleUDPClient  # type: ignore[import]
+                self._pool[key] = SimpleUDPClient(host, port)
+                self._dbg(f"  new UDP client → {host}:{port}  ✓")
+            except Exception as exc:
+                print(
+                    f"Warning: cannot create OSC client ({host}:{port}): {exc}",
+                    file=sys.stderr,
+                )
+                self._pool[key] = None
+        return self._pool[key]
 
     def _resolve_args(
         self,
@@ -205,18 +170,18 @@ class OscSender:
                 out.append(token)
         return out
 
-    def _send(self, address: str, args: list) -> None:
+    def _send(self, client, address: str, args: list) -> None:
         """Low-level UDP send.  Errors produce one warning then are suppressed."""
         try:
             if not args:
                 self._dbg(f"  _send: {address!r}  (no args)")
-                self._client.send_message(address, None)
+                client.send_message(address, None)
             elif len(args) == 1:
                 self._dbg(f"  _send: {address!r}  arg={args[0]!r}")
-                self._client.send_message(address, args[0])
+                client.send_message(address, args[0])
             else:
                 self._dbg(f"  _send: {address!r}  args={args!r}")
-                self._client.send_message(address, args)
+                client.send_message(address, args)
             self._dbg("  _send: OK")
         except Exception as exc:
             if not self._warned:

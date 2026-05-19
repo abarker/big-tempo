@@ -50,8 +50,8 @@ from big_tempo.midi import MidiHandler
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
-def _osc_sender(cfg: dict) -> OscSender:
-    return OscSender(cfg)
+def _osc_sender() -> OscSender:
+    return OscSender({})
 
 
 def _midi_handler(cfg: dict):
@@ -74,23 +74,34 @@ def _on_transport_change(cfg: dict, midi_mock, osc_mock, rolling: bool,
     direction   = "transport_start" if rolling else "transport_stop"
 
     for trigger in (direction, "transport_toggle"):
-        midi_spec = cfg.get("midi_send", {}).get(trigger)
-        if midi_spec:
-            midi_mock.send_with_context(
-                midi_spec, bpm=current_bpm, raw=0, rolling=rolling_int
-            )
-        osc_spec = cfg.get("osc_send", {}).get(trigger)
-        if osc_spec:
-            osc_mock.send_with_context(
-                osc_spec, bpm=current_bpm, raw=0, rolling=rolling_int
-            )
+        for spec in cfg.get("send", {}).get(trigger, []):
+            send_type = spec.get("send", "")
+            if send_type == "MIDI":
+                midi_mock.send_with_context(
+                    spec, bpm=current_bpm, raw=0, rolling=rolling_int
+                )
+            elif send_type == "OSC":
+                osc_mock.send_with_context(
+                    spec, bpm=current_bpm, raw=0, rolling=rolling_int
+                )
+
+
+def _fire_on_quantize(cfg: dict, midi_mock, osc_mock,
+                      current_bpm: float = 120.0) -> None:
+    """Standalone reimplementation of BigTempo._fire_on_quantize."""
+    for spec in cfg.get("send", {}).get("on_quantize", []):
+        send_type = spec.get("send", "")
+        if send_type == "MIDI":
+            midi_mock.send_with_context(spec, bpm=current_bpm, raw=0)
+        elif send_type == "OSC":
+            osc_mock.send_with_context(spec, bpm=current_bpm, raw=0)
 
 
 # ── rolling token – OscSender._resolve_args ────────────────────────────────────
 
 class TestOscRollingToken:
     def _sender(self):
-        return OscSender({"osc": {"host": "127.0.0.1", "port": 9000}})
+        return OscSender({})
 
     def test_rolling_1_when_started(self):
         s = self._sender()
@@ -118,7 +129,7 @@ class TestOscRollingToken:
 # ── rolling token – MidiHandler._resolve_value ────────────────────────────────
 
 class TestMidiRollingToken:
-    CFG = {"min_bpm": 20.0, "max_bpm": 300.0, "midi_send": {}}
+    CFG = {"min_bpm": 20.0, "max_bpm": 300.0, "send": {}}
 
     def _h(self):
         return _midi_handler(self.CFG)[0]
@@ -143,28 +154,27 @@ class TestOnTransportChange:
     # ── transport_start ────────────────────────────────────────────────────────
 
     def test_start_fires_transport_start_midi(self):
-        cfg = {"midi_send": {"transport_start": {"cc": 31, "channel": 1, "value": 127}},
-               "osc_send": {}}
+        midi_spec = {"send": "MIDI", "cc": 31, "channel": 1, "value": 127}
+        cfg = {"send": {"transport_start": [midi_spec]}}
         midi, osc = self._mocks()
         _on_transport_change(cfg, midi, osc, rolling=True)
         midi.send_with_context.assert_called_once_with(
-            {"cc": 31, "channel": 1, "value": 127},
-            bpm=120.0, raw=0, rolling=1,
+            midi_spec, bpm=120.0, raw=0, rolling=1,
         )
 
     def test_start_fires_transport_start_osc(self):
-        cfg = {"midi_send": {},
-               "osc_send": {"transport_start": {"address": "/H/PLAY", "args": []}}}
+        osc_spec = {"send": "OSC", "host": "127.0.0.1", "port": 9000,
+                    "address": "/H/PLAY", "args": []}
+        cfg = {"send": {"transport_start": [osc_spec]}}
         midi, osc = self._mocks()
         _on_transport_change(cfg, midi, osc, rolling=True)
         osc.send_with_context.assert_called_once_with(
-            {"address": "/H/PLAY", "args": []},
-            bpm=120.0, raw=0, rolling=1,
+            osc_spec, bpm=120.0, raw=0, rolling=1,
         )
 
     def test_start_passes_current_bpm(self):
-        cfg = {"midi_send": {"transport_start": {"cc": 31, "channel": 1, "value": 127}},
-               "osc_send": {}}
+        midi_spec = {"send": "MIDI", "cc": 31, "channel": 1, "value": 127}
+        cfg = {"send": {"transport_start": [midi_spec]}}
         midi, osc = self._mocks()
         _on_transport_change(cfg, midi, osc, rolling=True, current_bpm=142.0)
         _, kwargs = midi.send_with_context.call_args
@@ -173,25 +183,24 @@ class TestOnTransportChange:
     # ── transport_stop ─────────────────────────────────────────────────────────
 
     def test_stop_fires_transport_stop_midi(self):
-        cfg = {"midi_send": {"transport_stop": {"cc": 31, "channel": 1, "value": 0}},
-               "osc_send": {}}
+        midi_spec = {"send": "MIDI", "cc": 31, "channel": 1, "value": 0}
+        cfg = {"send": {"transport_stop": [midi_spec]}}
         midi, osc = self._mocks()
         _on_transport_change(cfg, midi, osc, rolling=False)
         midi.send_with_context.assert_called_once_with(
-            {"cc": 31, "channel": 1, "value": 0},
-            bpm=120.0, raw=0, rolling=0,
+            midi_spec, bpm=120.0, raw=0, rolling=0,
         )
 
     def test_stop_does_not_fire_transport_start(self):
-        cfg = {"midi_send": {"transport_start": {"cc": 31, "channel": 1, "value": 127}},
-               "osc_send": {}}
+        midi_spec = {"send": "MIDI", "cc": 31, "channel": 1, "value": 127}
+        cfg = {"send": {"transport_start": [midi_spec]}}
         midi, osc = self._mocks()
         _on_transport_change(cfg, midi, osc, rolling=False)
         midi.send_with_context.assert_not_called()
 
     def test_start_does_not_fire_transport_stop(self):
-        cfg = {"midi_send": {"transport_stop": {"cc": 31, "channel": 1, "value": 0}},
-               "osc_send": {}}
+        midi_spec = {"send": "MIDI", "cc": 31, "channel": 1, "value": 0}
+        cfg = {"send": {"transport_stop": [midi_spec]}}
         midi, osc = self._mocks()
         _on_transport_change(cfg, midi, osc, rolling=True)
         midi.send_with_context.assert_not_called()
@@ -199,45 +208,37 @@ class TestOnTransportChange:
     # ── transport_toggle ───────────────────────────────────────────────────────
 
     def test_toggle_fires_on_start(self):
-        cfg = {"midi_send": {"transport_toggle": {"cc": 32, "channel": 1, "value": "rolling"}},
-               "osc_send": {}}
+        midi_spec = {"send": "MIDI", "cc": 32, "channel": 1, "value": "rolling"}
+        cfg = {"send": {"transport_toggle": [midi_spec]}}
         midi, osc = self._mocks()
         _on_transport_change(cfg, midi, osc, rolling=True)
         midi.send_with_context.assert_called_once_with(
-            {"cc": 32, "channel": 1, "value": "rolling"},
-            bpm=120.0, raw=0, rolling=1,
+            midi_spec, bpm=120.0, raw=0, rolling=1,
         )
 
     def test_toggle_fires_on_stop(self):
-        cfg = {"midi_send": {"transport_toggle": {"cc": 32, "channel": 1, "value": "rolling"}},
-               "osc_send": {}}
+        midi_spec = {"send": "MIDI", "cc": 32, "channel": 1, "value": "rolling"}
+        cfg = {"send": {"transport_toggle": [midi_spec]}}
         midi, osc = self._mocks()
         _on_transport_change(cfg, midi, osc, rolling=False)
         midi.send_with_context.assert_called_once_with(
-            {"cc": 32, "channel": 1, "value": "rolling"},
-            bpm=120.0, raw=0, rolling=0,
+            midi_spec, bpm=120.0, raw=0, rolling=0,
         )
 
     def test_both_specific_and_toggle_fire_on_start(self):
-        cfg = {
-            "midi_send": {
-                "transport_start":  {"cc": 31, "channel": 1, "value": 127},
-                "transport_toggle": {"cc": 32, "channel": 1, "value": "rolling"},
-            },
-            "osc_send": {},
-        }
+        cfg = {"send": {
+            "transport_start":  [{"send": "MIDI", "cc": 31, "channel": 1, "value": 127}],
+            "transport_toggle": [{"send": "MIDI", "cc": 32, "channel": 1, "value": "rolling"}],
+        }}
         midi, osc = self._mocks()
         _on_transport_change(cfg, midi, osc, rolling=True)
         assert midi.send_with_context.call_count == 2
 
     def test_both_specific_and_toggle_fire_on_stop(self):
-        cfg = {
-            "midi_send": {
-                "transport_stop":   {"cc": 31, "channel": 1, "value": 0},
-                "transport_toggle": {"cc": 32, "channel": 1, "value": "rolling"},
-            },
-            "osc_send": {},
-        }
+        cfg = {"send": {
+            "transport_stop":   [{"send": "MIDI", "cc": 31, "channel": 1, "value": 0}],
+            "transport_toggle": [{"send": "MIDI", "cc": 32, "channel": 1, "value": "rolling"}],
+        }}
         midi, osc = self._mocks()
         _on_transport_change(cfg, midi, osc, rolling=False)
         assert midi.send_with_context.call_count == 2
@@ -245,69 +246,64 @@ class TestOnTransportChange:
     # ── no config – silent no-op ───────────────────────────────────────────────
 
     def test_no_transport_config_is_silent(self):
-        cfg = {"midi_send": {}, "osc_send": {}}
+        cfg = {"send": {}}
         midi, osc = self._mocks()
         _on_transport_change(cfg, midi, osc, rolling=True)
         midi.send_with_context.assert_not_called()
         osc.send_with_context.assert_not_called()
 
-    def test_missing_midi_send_section_is_silent(self):
-        cfg = {"osc_send": {}}
+    def test_missing_send_section_is_silent(self):
+        cfg = {}
         midi, osc = self._mocks()
         _on_transport_change(cfg, midi, osc, rolling=True)
         midi.send_with_context.assert_not_called()
 
-    # ── rolling value passed through correctly ─────────────────────────────────
+    # ── rolling value passed correctly ────────────────────────────────────────
 
     def test_osc_receives_rolling_1_on_start(self):
-        cfg = {
-            "midi_send": {},
-            "osc_send": {"transport_start": {"address": "/t", "args": ["rolling"]}},
-        }
+        osc_spec = {"send": "OSC", "host": "127.0.0.1", "port": 9000,
+                    "address": "/t", "args": ["rolling"]}
+        cfg = {"send": {"transport_start": [osc_spec]}}
         midi, osc = self._mocks()
         _on_transport_change(cfg, midi, osc, rolling=True)
         osc.send_with_context.assert_called_once_with(
-            {"address": "/t", "args": ["rolling"]},
-            bpm=120.0, raw=0, rolling=1,
+            osc_spec, bpm=120.0, raw=0, rolling=1,
         )
 
     def test_osc_receives_rolling_0_on_stop(self):
-        cfg = {
-            "midi_send": {},
-            "osc_send": {"transport_stop": {"address": "/t", "args": ["rolling"]}},
-        }
+        osc_spec = {"send": "OSC", "host": "127.0.0.1", "port": 9000,
+                    "address": "/t", "args": ["rolling"]}
+        cfg = {"send": {"transport_stop": [osc_spec]}}
         midi, osc = self._mocks()
         _on_transport_change(cfg, midi, osc, rolling=False)
         osc.send_with_context.assert_called_once_with(
-            {"address": "/t", "args": ["rolling"]},
-            bpm=120.0, raw=0, rolling=0,
+            osc_spec, bpm=120.0, raw=0, rolling=0,
         )
 
     # ── mixed midi + osc on same trigger ──────────────────────────────────────
 
     def test_both_midi_and_osc_fire_on_start(self):
-        cfg = {
-            "midi_send": {"transport_start": {"cc": 31, "channel": 1, "value": 127}},
-            "osc_send":  {"transport_start": {"address": "/H/PLAY", "args": []}},
-        }
+        cfg = {"send": {"transport_start": [
+            {"send": "MIDI", "cc": 31, "channel": 1, "value": 127},
+            {"send": "OSC",  "host": "127.0.0.1", "port": 9000,
+             "address": "/H/PLAY", "args": []},
+        ]}}
         midi, osc = self._mocks()
         _on_transport_change(cfg, midi, osc, rolling=True)
         midi.send_with_context.assert_called_once()
         osc.send_with_context.assert_called_once()
 
+    def test_multiple_osc_targets_on_same_trigger(self):
+        cfg = {"send": {"transport_start": [
+            {"send": "OSC", "host": "127.0.0.1", "port": 9000, "address": "/a"},
+            {"send": "OSC", "host": "10.0.0.5",  "port": 7400, "address": "/b"},
+        ]}}
+        midi, osc = self._mocks()
+        _on_transport_change(cfg, midi, osc, rolling=True)
+        assert osc.send_with_context.call_count == 2
+
 
 # ── _fire_on_quantize dispatch ─────────────────────────────────────────────────
-
-def _fire_on_quantize(cfg: dict, midi_mock, osc_mock,
-                      current_bpm: float = 120.0) -> None:
-    """Standalone reimplementation of BigTempo._fire_on_quantize."""
-    midi_spec = cfg.get("midi_send", {}).get("on_quantize")
-    if midi_spec:
-        midi_mock.send_with_context(midi_spec, bpm=current_bpm, raw=0)
-    osc_spec = cfg.get("osc_send", {}).get("on_quantize")
-    if osc_spec:
-        osc_mock.send_with_context(osc_spec, bpm=current_bpm, raw=0)
-
 
 class TestFireOnQuantize:
 
@@ -315,83 +311,69 @@ class TestFireOnQuantize:
         return MagicMock(), MagicMock()
 
     def test_osc_on_quantize_fires(self):
-        cfg = {
-            "midi_send": {},
-            "osc_send":  {"on_quantize": {"address": "/Hydrogen/BPM", "args": ["bpm"]}},
-        }
+        osc_spec = {"send": "OSC", "host": "127.0.0.1", "port": 9000,
+                    "address": "/Hydrogen/BPM", "args": ["bpm"]}
+        cfg = {"send": {"on_quantize": [osc_spec]}}
         midi, osc = self._mocks()
         _fire_on_quantize(cfg, midi, osc, current_bpm=120.0)
-        osc.send_with_context.assert_called_once_with(
-            {"address": "/Hydrogen/BPM", "args": ["bpm"]},
-            bpm=120.0, raw=0,
-        )
+        osc.send_with_context.assert_called_once_with(osc_spec, bpm=120.0, raw=0)
 
     def test_midi_on_quantize_fires(self):
-        cfg = {
-            "midi_send": {"on_quantize": {"cc": 30, "channel": 1, "value": "bpm"}},
-            "osc_send":  {},
-        }
+        midi_spec = {"send": "MIDI", "cc": 30, "channel": 1, "value": "bpm"}
+        cfg = {"send": {"on_quantize": [midi_spec]}}
         midi, osc = self._mocks()
         _fire_on_quantize(cfg, midi, osc, current_bpm=120.0)
-        midi.send_with_context.assert_called_once_with(
-            {"cc": 30, "channel": 1, "value": "bpm"},
-            bpm=120.0, raw=0,
-        )
+        midi.send_with_context.assert_called_once_with(midi_spec, bpm=120.0, raw=0)
 
     def test_both_fire_together(self):
-        cfg = {
-            "midi_send": {"on_quantize": {"cc": 30, "channel": 1, "value": "bpm"}},
-            "osc_send":  {"on_quantize": {"address": "/H/BPM", "args": ["bpm"]}},
-        }
+        cfg = {"send": {"on_quantize": [
+            {"send": "MIDI", "cc": 30, "channel": 1, "value": "bpm"},
+            {"send": "OSC",  "host": "127.0.0.1", "port": 9000,
+             "address": "/H/BPM", "args": ["bpm"]},
+        ]}}
         midi, osc = self._mocks()
         _fire_on_quantize(cfg, midi, osc, current_bpm=90.0)
         midi.send_with_context.assert_called_once()
         osc.send_with_context.assert_called_once()
 
     def test_passes_quantized_bpm(self):
-        cfg = {
-            "midi_send": {},
-            "osc_send":  {"on_quantize": {"address": "/H/BPM", "args": ["bpm"]}},
-        }
+        osc_spec = {"send": "OSC", "host": "127.0.0.1", "port": 9000,
+                    "address": "/H/BPM", "args": ["bpm"]}
+        cfg = {"send": {"on_quantize": [osc_spec]}}
         midi, osc = self._mocks()
         _fire_on_quantize(cfg, midi, osc, current_bpm=137.0)
         _, kwargs = osc.send_with_context.call_args
         assert kwargs["bpm"] == 137.0
 
     def test_no_config_is_silent(self):
-        cfg = {"midi_send": {}, "osc_send": {}}
+        cfg = {"send": {}}
         midi, osc = self._mocks()
         _fire_on_quantize(cfg, midi, osc)
         midi.send_with_context.assert_not_called()
         osc.send_with_context.assert_not_called()
 
     def test_on_quantize_independent_of_on_change(self):
-        """on_quantize and on_change are separate keys; each fires independently."""
-        cfg = {
-            "midi_send": {
-                "on_change":   {"cc": 31, "channel": 1, "value": "bpm"},
-                "on_quantize": {"cc": 30, "channel": 1, "value": "bpm"},
-            },
-            "osc_send": {},
-        }
+        """on_quantize and on_change are separate triggers."""
+        quantize_spec = {"send": "MIDI", "cc": 30, "channel": 1, "value": "bpm"}
+        change_spec   = {"send": "MIDI", "cc": 31, "channel": 1, "value": "bpm"}
+        cfg = {"send": {
+            "on_change":   [change_spec],
+            "on_quantize": [quantize_spec],
+        }}
         midi, osc = self._mocks()
-        # on_quantize fires
         _fire_on_quantize(cfg, midi, osc, current_bpm=120.0)
         assert midi.send_with_context.call_args[0][0]["cc"] == 30
 
     def test_only_fires_when_value_actually_changed(self):
         """
         The app must not call _fire_on_quantize when the quantized value
-        equals the raw value (no snapping occurred).  Verified by checking
-        that the guard condition abs(snapped - adopted) > 1e-6 works.
+        equals the raw value (no snapping occurred).
         """
         from big_tempo.config import quantize_bpm
-        # 120.0 quantized to step 1.0 → still 120.0 → no snap
         raw = 120.0
         snapped = quantize_bpm(raw, {"quantize": 1.0})
         assert abs(snapped - raw) <= 1e-6   # guard would NOT fire
 
-        # 120.3 quantized to step 1.0 → 120.0 → snap occurred
         raw2 = 120.3
         snapped2 = quantize_bpm(raw2, {"quantize": 1.0})
         assert abs(snapped2 - raw2) > 1e-6  # guard WOULD fire

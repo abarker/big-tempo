@@ -25,10 +25,19 @@ DEFAULT_CFG: dict = {
     "min_bpm": 20.0,
     "max_bpm": 300.0,
     "receive": {},
-    "midi_send": {},
-    "osc":      {},
-    "osc_send": {},
-    "debug":    False,
+    # Unified send list: maps trigger names to a list of action dicts.
+    # Each action dict must have a "send" key of "MIDI" or "OSC".
+    # OSC actions carry "host", "port", and "address" inline.
+    # Example:
+    #   "send": {
+    #       "on_change": [
+    #           {"send": "MIDI", "cc": 30, "channel": 1, "value": "bpm"},
+    #           {"send": "OSC",  "host": "127.0.0.1", "port": 9000,
+    #            "address": "/Hydrogen/BPM", "args": ["bpm"]},
+    #       ],
+    #   }
+    "send":  {},
+    "debug": False,
     "quantize":      None,
     "quantize_jack": False,
 }
@@ -55,6 +64,13 @@ def load_config(path: Optional[str] = None) -> dict:
             "receive": {
                 "CC20": {"action": "up",   "amount": 1.0},
                 "CC21": {"action": "down", "amount": 1.0},
+            },
+            "send": {
+                "on_change": [
+                    {"send": "MIDI", "cc": 30, "channel": 1, "value": "bpm"},
+                    {"send": "OSC",  "host": "127.0.0.1", "port": 9000,
+                     "address": "/Hydrogen/BPM", "args": ["bpm"]},
+                ],
             },
         }
 

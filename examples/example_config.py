@@ -10,7 +10,7 @@
 # A timestamped notice is printed to the terminal on each reload.
 #
 # What reloads live:  all receive/send mappings, min/max BPM, quantize,
-#                     buttons, debug, OSC host/port.
+#                     buttons, debug, OSC targets.
 # Requires restart:   midi.client_name (JACK client rename not supported).
 {
     "midi": {
@@ -25,8 +25,8 @@
     },
 
     # ── Debug mode ────────────────────────────────────────────────────────────
-    # Set to True to print a full trace of every BPM change and OSC/MIDI send
-    # to stderr.  Turn off again once everything is working.
+    # Set to True to print a full trace of every incoming CC, BPM change, and
+    # outgoing MIDI / OSC send to stderr.  Turn off once everything is working.
     "debug": False,
 
     "min_bpm": 20.0,
@@ -48,34 +48,33 @@
     "quantize_jack":          False,  # set True to also quantize JACK-adopted tempos
 
     # ── Tempo list: update current slot on BPM change ─────────────────────────
-    # When True (default), any user-initiated BPM change (button, incoming MIDI)
-    # while a tempo list entry is active will overwrite that entry with the new
-    # value.  Useful for nudging a saved tempo without re-capturing it.
-    # Set to False if you want the saved tempos to stay fixed once captured.
+    # When True (default), any user-initiated BPM change while a tempo list
+    # entry is active overwrites that entry with the new value.  Useful for
+    # nudging a saved tempo on the fly.  Set to False to keep saved tempos fixed.
     "list_update_on_change":  True,
 
     # ── Incoming MIDI CC mappings ──────────────────────────────────────────────
-    # Key format: "CC<number>"
+    # Key format: "CC<number>"  (CC number 0–127)
     #
     # BPM actions:
     #   up        – raise BPM by <amount>
     #   down      – lower BPM by <amount>
     #   set       – proportionally map the incoming CC value (0-127) onto the
-    #               min_bpm-max_bpm range for an absolute tempo set.
-    #               CC=0 → min_bpm, CC=127 → max_bpm, CC=64 → midpoint.
-    #               The raw 0-127 value is NOT used directly as a BPM number.
+    #               min_bpm–max_bpm range.  CC=0 → min_bpm, CC=127 → max_bpm.
+    #               The raw 0–127 value is NOT used directly as a BPM number.
     #
     # Tempo list actions:
     #   list_append – save current BPM to end of tempo list
     #   list_next   – step to next saved tempo cyclically and apply it
     #   list_clear  – discard all saved tempos and reset the pointer
     #
-    # Send-only actions (fire a send without changing BPM):
-    #   osc_only  – fire the entry's osc_send without changing tempo
-    #   midi_only – fire the entry's midi_send without changing tempo
+    # Send-only actions (fire a "send" list without changing BPM):
+    #   osc_only  – fire the entry's "send" list, no BPM change
+    #   midi_only – fire the entry's "send" list, no BPM change
     #
-    # Any receive entry may also carry an "osc_send" and/or "midi_send" key to
-    # fire additional messages alongside (or instead of) its BPM action.
+    # Any receive entry may carry a "send" list to fire additional MIDI and/or
+    # OSC messages alongside (or instead of) its BPM action.  See the unified
+    # "send" section below for the action dict format.
     "receive": {
         "CC20": {"action": "up",          "amount": 1.0},
         "CC21": {"action": "down",        "amount": 1.0},
@@ -86,71 +85,89 @@
 
         # Trigger Hydrogen PLAY via OSC – no BPM change
         # "CC26": {"action": "osc_only",
-        #          "osc_send": {"address": "/Hydrogen/PLAY", "args": []}},
+        #          "send": [{"send": "OSC", "host": "127.0.0.1", "port": 9000,
+        #                    "address": "/Hydrogen/PLAY", "args": []}]},
 
         # Fire a fixed CC value (e.g. to trigger a DAW mute) – no BPM change
         # "CC27": {"action": "midi_only",
-        #          "midi_send": {"cc": 50, "channel": 2, "value": 127}},
+        #          "send": [{"send": "MIDI", "cc": 50, "channel": 2, "value": 127}]},
 
         # Up press that also logs BPM + raw value over OSC
         # "CC20": {"action": "up", "amount": 1.0,
-        #          "osc_send": {"address": "/log/bpm_up", "args": ["bpm", "raw"]}},
+        #          "send": [{"send": "OSC", "host": "127.0.0.1", "port": 9000,
+        #                    "address": "/log/bpm_up", "args": ["bpm", "raw"]}]},
     },
 
-    # ── Outgoing MIDI CC ──────────────────────────────────────────────────────
-    # Fires on every user-initiated BPM change (buttons, incoming MIDI, list_next).
-    # JACK-initiated changes do NOT trigger a send.
+    # ── Unified outgoing sends ─────────────────────────────────────────────────
+    # Maps trigger names to a list of action dicts.  Every action dict must
+    # carry a "send" key of "MIDI" or "OSC".
     #
-    # "value" is REQUIRED in every midi_send spec.  Omitting it prints a
-    # warning to stderr and skips that send entirely.  Valid values:
-    #   "bpm"       – current BPM mapped proportionally to 0-127
-    #   "raw"       – pass the incoming CC value straight through (0-127)
-    #   "rolling"   – 127 on transport start, 0 on transport stop
-    #   <int 0-127> – fixed literal
-    "midi_send": {
-        # "on_change":   {"cc": 30, "channel": 1, "value": "bpm"},
-        # "on_quantize": {"cc": 30, "channel": 1, "value": "bpm"},  # fires when quantize_jack snaps a tempo
-        # "on_change": {"cc": 31, "channel": 1, "value": 64},     # always 64
-        #
-        # JACK transport events:
-        # "transport_start":  {"cc": 32, "channel": 1, "value": 127},
-        # "transport_stop":   {"cc": 32, "channel": 1, "value": 0},
-        # "transport_toggle": {"cc": 33, "channel": 1, "value": "rolling"},
-    },
+    # Multiple actions on one trigger fire in list order, so you can mix MIDI
+    # and OSC freely, or fan out to several OSC targets at once.
+    #
+    # MIDI action keys:
+    #   "send":    "MIDI"          (required discriminator)
+    #   "cc":      <int 0–127>     (required)
+    #   "channel": <int 1–16>      (required)
+    #   "value":   "bpm"           – current BPM mapped proportionally to 0–127
+    #              "raw"           – incoming CC value passed straight through
+    #              "rolling"       – 127 on transport start, 0 on transport stop
+    #              <int 0–127>     – fixed literal value
+    #
+    # OSC action keys:
+    #   "send":    "OSC"           (required discriminator)
+    #   "host":    <string>        (required – destination IP or hostname)
+    #   "port":    <int 1–65535>   (required – destination UDP port)
+    #   "address": <string>        (required – must start with '/')
+    #   "args":    [token, …]      (optional list; same tokens as "value" above,
+    #                               plus any literal int / float / str / bool)
+    #
+    # Trigger names:
+    #   on_change        – every user-initiated BPM change (buttons, MIDI, list_next)
+    #   on_quantize      – when quantize_jack snaps a JACK-adopted tempo to the grid
+    #   transport_start  – JACK transport starts rolling
+    #   transport_stop   – JACK transport stops
+    #   transport_toggle – either transport transition
+    "send": {
+        # ── on_change: push new tempo to Hydrogen on every user change ─────────
+        "on_change": [
+            {"send": "OSC", "host": "127.0.0.1", "port": 9000,
+             "address": "/Hydrogen/BPM", "args": ["bpm"]},
 
-    # ── OSC connection settings ────────────────────────────────────────────────
-    # Required if any osc_send is used.  Defines a single UDP destination.
-    "osc": {
-        "host": "127.0.0.1",    # destination host (usually localhost)
-        "port": 9000,            # Hydrogen OSC port (Edit → Preferences → OSC)
-    },
+            # Also send as MIDI CC (uncomment if needed):
+            # {"send": "MIDI", "cc": 30, "channel": 1, "value": "bpm"},
+        ],
 
-    # ── Outgoing OSC messages ──────────────────────────────────────────────────
-    # "on_change" fires on every user-initiated BPM change.
-    #
-    # This is the recommended way to drive Hydrogen's tempo: its MIDI
-    # interface only supports relative BPM changes (±63 BPM max), while its
-    # OSC interface accepts an absolute float – no drift, no ambiguity.
-    #
-    # "args" tokens:
-    #   "bpm"       – current BPM as a float
-    #   "raw"       – incoming CC value 0-127 as an int
-    #   <literal>   – passed through unchanged (int, float, str, bool)
-    "osc_send": {
-        "on_change":   {"address": "/Hydrogen/BPM", "args": ["bpm"]},
-        # "on_quantize": {"address": "/Hydrogen/BPM", "args": ["bpm"]},
-        #   Fires when quantize_jack snaps a JACK-adopted tempo (e.g. tap-tempo).
-        #   Use this to push the snapped value back to Hydrogen over OSC.
-        #   Unlike on_change, this does NOT fire for user-initiated changes.
-        # Additional fixed messages fired on every change:
-        # "on_change_also": [
-        #     {"address": "/some/other/thing", "args": [1]},
+        # ── on_quantize: push snapped tempo back to Hydrogen ──────────────────
+        # Fires when quantize_jack corrects a JACK-adopted tempo.  Unlike
+        # on_change this does NOT fire for user-initiated changes.
+        # "on_quantize": [
+        #     {"send": "OSC", "host": "127.0.0.1", "port": 9000,
+        #      "address": "/Hydrogen/BPM", "args": ["bpm"]},
         # ],
-        #
-        # JACK transport events:
-        # "transport_start":  {"address": "/Hydrogen/PLAY",  "args": []},
-        # "transport_stop":   {"address": "/Hydrogen/PAUSE", "args": []},
-        # "transport_toggle": {"address": "/transport",      "args": ["rolling"]},
-        #   "rolling" token → 1 on start, 0 on stop
+
+        # ── JACK transport events ─────────────────────────────────────────────
+        # "transport_start": [
+        #     {"send": "OSC",  "host": "127.0.0.1", "port": 9000,
+        #      "address": "/Hydrogen/PLAY", "args": []},
+        #     {"send": "MIDI", "cc": 32, "channel": 1, "value": 127},
+        # ],
+        # "transport_stop": [
+        #     {"send": "OSC",  "host": "127.0.0.1", "port": 9000,
+        #      "address": "/Hydrogen/PAUSE", "args": []},
+        #     {"send": "MIDI", "cc": 32, "channel": 1, "value": 0},
+        # ],
+        # "transport_toggle": [
+        #     # "rolling" token → 1 on start, 0 on stop
+        #     {"send": "MIDI", "cc": 33, "channel": 1, "value": "rolling"},
+        # ],
+
+        # ── Fan-out example: two OSC targets on one trigger ───────────────────
+        # "on_change": [
+        #     {"send": "OSC", "host": "127.0.0.1", "port": 9000,
+        #      "address": "/Hydrogen/BPM", "args": ["bpm"]},
+        #     {"send": "OSC", "host": "10.0.0.5",  "port": 7400,
+        #      "address": "/stage/bpm",    "args": ["bpm"]},
+        # ],
     },
 }

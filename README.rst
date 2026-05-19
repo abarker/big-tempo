@@ -21,14 +21,16 @@ Features
 - **mididings MIDI I/O** (JACK MIDI backend)
 
   - Receive CC to increment, decrement, or set BPM
-  - Send CC on every user-initiated change, with configurable value encoding
+  - Outgoing MIDI CC on user-initiated changes, with configurable value encoding
 
 - **python-osc OSC output** for absolute tempo commands (recommended for
   Hydrogen, which only supports relative BPM over MIDI)
+- **Unified send lists** – each trigger maps to a list of MIDI and/or OSC
+  action dicts, so you can fan out to multiple destinations in one config line
 - **Tempo list** – save BPM snapshots during soundcheck and cycle through
   them live via a single footswitch
-- Per-receive OSC and MIDI sends – any incoming CC can trigger additional
-  output messages independently of its BPM action
+- Per-receive send lists – any incoming CC can fire extra MIDI and OSC
+  messages independently of its BPM action
 - Adopts JACK tempo changes from an external master (e.g. Hydrogen)
   without firing outgoing MIDI or OSC
 
@@ -51,11 +53,11 @@ Requirements
    * - ``mididings``
      - ``pip install mididings`` or distro package ``python3-mididings``
    * - ``python-osc``
-     - ``pip install python-osc`` (pure Python, no C extensions required)
+     - Included in ``pip install -e .`` (pure Python, no C extensions)
 
-``jack``, ``mididings``, and ``python-osc`` are all **optional** – the app
-starts without any of them (each feature degrades gracefully with a one-time
-warning to stderr).
+``jack`` and ``mididings`` are **optional** at runtime – the app starts without
+them and degrades gracefully with a one-time warning to stderr.  ``python-osc``
+is a hard dependency and is installed automatically.
 
 
 Installation
@@ -72,10 +74,9 @@ their Python bindings **before** running ``pip install -e .``::
     sudo apt install libjack-jackd2-dev python3-tk
     pip install JACK-Client mididings
 
-Then install the package and the OSC library::
+Then install the package (``python-osc`` is pulled in automatically)::
 
     pip install -e .
-    pip install python-osc
 
 For development (adds pytest)::
 
@@ -121,11 +122,16 @@ The file must contain a single Python **dict literal**.  Full ``#`` comment
 syntax and trailing commas are supported (unlike JSON).  It is parsed with
 ``ast.literal_eval`` – no arbitrary code is executed.
 
-A fully annotated starter file is provided as ``example_config.py`` in the
-repository root::
+A fully annotated starter file is provided as ``examples/example_config.py``
+in the repository root::
 
     mkdir -p ~/.config/big-tempo
-    cp example_config.py ~/.config/big-tempo/config.py
+    cp examples/example_config.py ~/.config/big-tempo/config.py
+
+The loader validates the config on every load and reload.  Problems (unknown
+action names, missing required keys, out-of-range values, legacy key names)
+are printed to stderr as ``Config warning:`` lines.  The config is still
+applied – warnings are informational, not fatal.
 
 Hot reload
 ~~~~~~~~~~
@@ -141,34 +147,34 @@ A timestamped message is printed to stderr on each reload::
 
 **What takes effect immediately:**
 
-- All ``receive`` / ``midi_send`` / ``osc_send`` mappings
+- All ``receive`` and ``send`` mappings
 - ``min_bpm``, ``max_bpm``, ``quantize``, ``quantize_jack``
 - ``buttons`` timing (increment, repeat delay/rate)
 - ``debug`` flag
-- OSC ``host`` / ``port`` (a new UDP client is opened automatically)
+- OSC targets (the send pool is rebuilt fresh on each reload)
 
 **Requires a restart:**
 
 - ``midi.client_name`` – the mididings JACK client cannot be renamed
-  at runtime; a note is printed alongside the reload message if this
-  key was changed.
+  at runtime; a note is printed alongside the reload message if this key
+  was changed.
 
-.. code-block:: python
+Top-level structure::
 
     {
         "midi":    {"client_name": "big_tempo_midi", "channel": 1},
         "buttons": {"increment": 1.0, "repeat_delay_ms": 400, "repeat_ms": 80},
         "min_bpm": 20.0,
         "max_bpm": 300.0,
-        "receive":   { ... },   # see Receive actions below
-        "midi_send": { ... },   # outgoing MIDI CC
-        "osc":       { ... },   # OSC connection info
-        "osc_send":  { ... },   # outgoing OSC messages
+        "receive": { ... },   # incoming CC → BPM action + optional sends
+        "send":    { ... },   # trigger → list of MIDI / OSC action dicts
     }
 
 
 Receive actions
 ~~~~~~~~~~~~~~~
+
+``"receive"`` maps CC numbers (``"CC<n>"``) to action dicts.
 
 .. list-table::
    :header-rows: 1
@@ -189,57 +195,43 @@ Receive actions
      - Save the current BPM to the end of the tempo list
    * - ``list_next``
      - Advance the tempo-list pointer one step (wrapping), apply that BPM,
-       and fire outgoing MIDI + OSC
+       and fire outgoing sends
    * - ``list_clear``
      - Discard all saved tempos and reset the list pointer
    * - ``osc_only``
-     - Fire the entry's ``osc_send`` without changing tempo
+     - Fire the entry's ``"send"`` list without changing tempo
    * - ``midi_only``
-     - Fire the entry's ``midi_send`` without changing tempo
+     - Fire the entry's ``"send"`` list without changing tempo
 
-Any receive entry may carry both an ``osc_send`` and/or ``midi_send`` key to
-fire extra messages alongside its primary action::
+Any receive entry may carry a ``"send"`` list to fire extra MIDI and/or OSC
+messages alongside its primary action::
 
     "receive": {
         # BPM up + log over OSC
         "CC20": {"action": "up", "amount": 1.0,
-                 "osc_send": {"address": "/log/up", "args": ["bpm", "raw"]}},
+                 "send": [{"send": "OSC", "host": "127.0.0.1", "port": 9000,
+                           "address": "/log/up", "args": ["bpm", "raw"]}]},
 
         # Trigger Hydrogen PLAY – no BPM change
         "CC26": {"action": "osc_only",
-                 "osc_send": {"address": "/Hydrogen/PLAY", "args": []}},
+                 "send": [{"send": "OSC", "host": "127.0.0.1", "port": 9000,
+                           "address": "/Hydrogen/PLAY", "args": []}]},
 
         # Fire a fixed CC to a DAW – no BPM change
         "CC27": {"action": "midi_only",
-                 "midi_send": {"cc": 50, "channel": 2, "value": 127}},
+                 "send": [{"send": "MIDI", "cc": 50, "channel": 2, "value": 127}]},
     },
 
 
-MIDI send (``midi_send``)
-~~~~~~~~~~~~~~~~~~~~~~~~~
+Unified send lists (``send``)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Fires a MIDI CC on user-initiated BPM changes (buttons, incoming MIDI,
-``list_next``).  JACK-initiated changes do **not** trigger a send.
+``"send"`` maps trigger names to a **list** of action dicts.  Actions fire in
+list order; MIDI and OSC actions may be freely mixed on the same trigger.  The
+same OSC host/port can appear on multiple triggers – a single UDP socket is
+reused per unique ``(host, port)`` pair.
 
-The ``"value"`` field is **required** in every ``midi_send`` spec.  Omitting
-it prints a one-time warning to stderr and skips that send entirely.
-
-.. list-table::
-   :header-rows: 1
-   :widths: 15 45
-
-   * - Token
-     - Result
-   * - ``"bpm"``
-     - Current BPM mapped proportionally to 0–127
-   * - ``"raw"``
-     - Incoming CC value passed straight through (0–127)
-   * - ``"rolling"``
-     - 127 on transport start, 0 on transport stop
-   * - ``<int 0–127>``
-     - Fixed literal value
-
-Trigger keys inside ``midi_send`` / ``osc_send``:
+**Trigger names:**
 
 .. list-table::
    :header-rows: 1
@@ -252,8 +244,8 @@ Trigger keys inside ``midi_send`` / ``osc_send``:
    * - ``on_quantize``
      - When ``quantize_jack`` snaps a JACK-adopted tempo to the grid and the
        snapped value differs from the raw value.  Use this to push the
-       corrected tempo back to Hydrogen (or any other target) via MIDI or OSC
-       without also re-sending on every user button press.
+       corrected tempo back to Hydrogen without also re-sending on every user
+       button press.
    * - ``transport_start``
      - JACK transport transitions from stopped to rolling
    * - ``transport_stop``
@@ -261,53 +253,95 @@ Trigger keys inside ``midi_send`` / ``osc_send``:
    * - ``transport_toggle``
      - Either transport transition
 
-::
-
-    "midi_send": {
-        "on_change":   {"cc": 30, "channel": 1, "value": "bpm"},
-        "on_quantize": {"cc": 30, "channel": 1, "value": "bpm"},
-    },
-
-
-OSC output (``osc`` + ``osc_send``)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-Recommended for controlling **Hydrogen's tempo absolutely**.  Hydrogen's
-MIDI interface only supports relative BPM changes (``BPM_CC_RELATIVE``,
-±63 BPM max, error-prone over async transport).  Its OSC interface accepts
-``/Hydrogen/BPM <float>`` as an absolute command.
-
-Enable OSC in Hydrogen: ``Edit → Preferences → OSC`` (default port 9000).
-
-Install the library::
-
-    pip install python-osc
-
-Config::
-
-    "osc": {
-        "host": "127.0.0.1",
-        "port": 9000,
-    },
-    "osc_send": {
-        "on_change":   {"address": "/Hydrogen/BPM", "args": ["bpm"]},
-        "on_quantize": {"address": "/Hydrogen/BPM", "args": ["bpm"]},
-    },
-
-``"args"`` tokens (same convention as per-receive ``osc_send``):
+**MIDI action keys:**
 
 .. list-table::
    :header-rows: 1
-   :widths: 15 45
+   :widths: 12 12 46
 
-   * - Token
-     - Result
-   * - ``"bpm"``
-     - Current BPM as a float
-   * - ``"raw"``
-     - Incoming CC value 0–127 as an int
-   * - ``<literal>``
-     - Passed through unchanged (int, float, str, bool)
+   * - Key
+     - Required
+     - Value
+   * - ``"send"``
+     - yes
+     - ``"MIDI"``
+   * - ``"cc"``
+     - yes
+     - Integer 0–127
+   * - ``"channel"``
+     - yes
+     - Integer 1–16
+   * - ``"value"``
+     - yes
+     - ``"bpm"`` – current BPM mapped proportionally to 0–127 |br|
+       ``"raw"`` – incoming CC value passed straight through (0–127) |br|
+       ``"rolling"`` – 127 on transport start, 0 on transport stop |br|
+       ``<int 0–127>`` – fixed literal
+
+.. |br| raw:: html
+
+   <br />
+
+**OSC action keys:**
+
+.. list-table::
+   :header-rows: 1
+   :widths: 12 12 46
+
+   * - Key
+     - Required
+     - Value
+   * - ``"send"``
+     - yes
+     - ``"OSC"``
+   * - ``"host"``
+     - yes
+     - Destination hostname or IP address
+   * - ``"port"``
+     - yes
+     - Destination UDP port (1–65535)
+   * - ``"address"``
+     - yes
+     - OSC address string starting with ``/``
+   * - ``"args"``
+     - no
+     - List of tokens and/or literals.  Token strings: ``"bpm"`` (float),
+       ``"raw"`` (int), ``"rolling"`` (int).  Any other value is passed
+       through unchanged (int, float, str, bool).
+
+**Example – Hydrogen tempo + transport:**
+
+.. code-block:: python
+
+    "send": {
+        "on_change": [
+            {"send": "OSC", "host": "127.0.0.1", "port": 9000,
+             "address": "/Hydrogen/BPM", "args": ["bpm"]},
+        ],
+        "transport_start": [
+            {"send": "OSC",  "host": "127.0.0.1", "port": 9000,
+             "address": "/Hydrogen/PLAY", "args": []},
+            {"send": "MIDI", "cc": 32, "channel": 1, "value": 127},
+        ],
+        "transport_stop": [
+            {"send": "OSC",  "host": "127.0.0.1", "port": 9000,
+             "address": "/Hydrogen/PAUSE", "args": []},
+            {"send": "MIDI", "cc": 32, "channel": 1, "value": 0},
+        ],
+    },
+
+**Example – fan out to two OSC destinations:**
+
+.. code-block:: python
+
+    "send": {
+        "on_change": [
+            {"send": "OSC", "host": "127.0.0.1", "port": 9000,
+             "address": "/Hydrogen/BPM", "args": ["bpm"]},
+            {"send": "OSC", "host": "10.0.0.5",  "port": 7400,
+             "address": "/stage/bpm",    "args": ["bpm"]},
+        ],
+    },
 
 
 Tempo list
@@ -369,18 +403,22 @@ Package layout
     │       ├── __init__.py       version + headless-safe public exports
     │       ├── __main__.py       python -m big_tempo entry point
     │       ├── constants.py      visual / layout constants
-    │       ├── config.py         defaults, loader, BPM math helpers
+    │       ├── config.py         defaults, loader, validator, BPM math helpers
     │       ├── cli.py            argument parser
     │       ├── midi.py           MidiHandler (mididings wrapper)
-    │       ├── osc.py            OscSender (python-osc wrapper)
+    │       ├── osc.py            OscSender – lazy (host, port) pool
     │       ├── tempo_list.py     TempoList (cyclic tempo store)
     │       └── app.py            BigTempo tkinter application
     ├── tests/
-    │   ├── test_config.py        config loading & merging
+    │   ├── test_config.py        config loading, merging & validation
     │   ├── test_bpm_math.py      clamp / CC value mapping
     │   ├── test_midi_handler.py  MIDI routing & send_with_context
-    │   ├── test_osc.py           OscSender (mocked)
+    │   ├── test_osc.py           OscSender pool (mocked)
+    │   ├── test_transport.py     transport send dispatch & rolling token
+    │   ├── test_config_reload.py hot-reload logic
+    │   ├── test_quantize.py      BPM quantization
     │   └── test_tempo_list.py    TempoList cyclic logic
+    ├── examples/
+    │   └── example_config.py     annotated starter config
     ├── pyproject.toml
-    ├── README.rst
-    └── example_config.py
+    └── README.rst

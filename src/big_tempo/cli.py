@@ -135,4 +135,21 @@ def parse_args(argv=None) -> argparse.Namespace:
             "Right-click shows a Quit/Cancel menu."
         ),
     )
+
+    import os as _os
+    _default_pos = _os.path.expanduser("~/.config/big-tempo/window.pos")
+    p.add_argument(
+        "--save-pos",
+        nargs="?",
+        const=_default_pos,   # value used when flag given with no argument
+        default=None,          # value used when flag is absent entirely
+        metavar="FILE",
+        help=(
+            "Save the window position on exit and restore it on the next run. "
+            f"With no argument, uses {_default_pos}. "
+            "Pass an explicit path to use a different file, e.g. when running "
+            "multiple configs that need separate positions."
+        ),
+    )
+
     return p.parse_args(argv)

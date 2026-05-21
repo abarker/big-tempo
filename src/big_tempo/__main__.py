@@ -17,15 +17,20 @@ def main() -> None:
     root = tk.Tk()
     app  = BigTempo(root, args, cfg)
 
-    # Make Ctrl-C work.
+    # Make Ctrl-C and SIGTERM work cleanly.
     #
     # tkinter's mainloop() runs in C and does not regularly check Python's
     # signal handler, so KeyboardInterrupt is never raised while the loop is
-    # idle.  Registering a SIGINT handler that schedules root.destroy() via
-    # root.after() fixes this: the signal arrives asynchronously, the handler
-    # runs in the OS signal context, and root.after(0, ...) posts a callback
-    # that the tkinter event loop picks up at its next idle iteration.
-    signal.signal(signal.SIGINT, lambda _sig, _frame: root.after(0, root.destroy))
+    # idle.  Registering handlers that schedule app._on_close() via root.after()
+    # fixes this: the signal arrives asynchronously, the handler runs in the OS
+    # signal context, and root.after(0, ...) posts a callback that the tkinter
+    # event loop picks up at its next idle iteration.
+    #
+    # Routing through app._on_close (rather than root.destroy directly) ensures
+    # the window position is saved even when the process is terminated by a signal.
+    _close = lambda _sig, _frame: root.after(0, app._on_close)
+    signal.signal(signal.SIGINT,  _close)
+    signal.signal(signal.SIGTERM, _close)
 
     try:
         root.mainloop()

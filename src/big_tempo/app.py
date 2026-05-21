@@ -296,6 +296,54 @@ class BigTempo:
             self._repeat_job = None
 
     # ── Window setup ───────────────────────────────────────────────────────────
+    def _pos_path(self) -> str | None:
+        """
+        Return the resolved position-file path, or ``None`` if ``--save-pos``
+        was not given.
+
+        ``args.save_pos`` is ``None`` when the flag is absent and a path string
+        (either the XDG default or an explicit one) when the flag is present.
+        """
+        return self.args.save_pos   # None → disabled; str → enabled
+
+    def _save_pos(self) -> None:
+        """
+        Write the current window position to the position file.
+
+        Does nothing when ``--save-pos`` was not supplied.  Errors are printed
+        to stderr and suppressed so that a save failure never prevents the
+        application from closing.
+        """
+        path = self._pos_path()
+        if not path:
+            return
+        try:
+            x = self.root.winfo_x()
+            y = self.root.winfo_y()
+            dir_part = os.path.dirname(path)
+            if dir_part:
+                os.makedirs(dir_part, exist_ok=True)
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(f"{x}\n{y}\n")
+            self._dbg(f"saved window position ({x}, {y}) → {path}")
+        except Exception as exc:
+            print(f"Warning: could not save window position to {path!r}: {exc}",
+                  file=sys.stderr)
+
+    def _on_close(self) -> None:
+        """
+        Clean shutdown: save window position (if ``--save-pos`` is active),
+        then destroy the root window.
+
+        Bound to:
+        - WM delete-window protocol (title-bar × button)
+        - Escape key
+        - Context-menu Quit (no-titlebar mode)
+        - SIGINT / SIGTERM (via ``__main__``)
+        """
+        self._save_pos()
+        self.root.destroy()
+
     def _setup_window(self) -> None:
         self.root.title("Big Tempo")
         self.root.configure(
@@ -309,12 +357,28 @@ class BigTempo:
         h = int(self.args.height_in * ppi)
         self._base_win_w = w
         self._base_win_h = h
-        self.root.geometry(f"{w}x{h}")
+
+        # Build geometry string: size always; position from saved file if present
+        geo = f"{w}x{h}"
+        pos_path = self._pos_path()
+        if pos_path and os.path.exists(pos_path):
+            try:
+                parts = open(pos_path, encoding="utf-8").read().split()
+                x, y  = int(parts[0]), int(parts[1])
+                geo   = f"{w}x{h}+{x}+{y}"
+                self._dbg(f"restored window position ({x}, {y}) from {pos_path}")
+            except Exception as exc:
+                print(f"Warning: could not read position file {pos_path!r}: {exc}",
+                      file=sys.stderr)
+        self.root.geometry(geo)
+
         if self.args.no_titlebar:
             self.root.overrideredirect(True)
         if self.args.always_on_top:
             self.root.attributes("-topmost", True)
-        self.root.bind("<Escape>", lambda _: self.root.destroy())
+        # Route all close paths through _on_close so position is always saved
+        self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+        self.root.bind("<Escape>", lambda _: self._on_close())
 
     # ── Widgets ────────────────────────────────────────────────────────────────
     def _create_widgets(self) -> None:
@@ -402,7 +466,7 @@ class BigTempo:
             self.canvas.bind("<B1-Motion>",  self._do_drag)
             self.root.bind_all("<Button-3>", self._show_context_menu)
             self.context_menu = tk.Menu(self.root, tearoff=0)
-            self.context_menu.add_command(label="Quit",   command=self.root.destroy)
+            self.context_menu.add_command(label="Quit",   command=self._on_close)
             self.context_menu.add_separator()
             self.context_menu.add_command(label="Cancel", command=lambda: None)
 

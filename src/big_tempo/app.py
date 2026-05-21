@@ -270,6 +270,61 @@ class BigTempo:
             elif send_type == "MIDI":
                 self.midi.send_with_context(spec, bpm=self.current_bpm, raw=raw)
 
+    # ── GUI tempo-list actions ─────────────────────────────────────────────────
+    def _scroll_bpm(self, direction: int) -> None:
+        """Handle mouse-wheel scroll over the canvas or pill row."""
+        inc = float(self.cfg.get("buttons", {}).get("increment", 1.0))
+        self._user_set_bpm(self.current_bpm + direction * inc)
+
+    def _gui_list_append(self) -> None:
+        """Double-click on the main canvas: save current BPM to the list."""
+        self._tempo_list.append(self.current_bpm)
+        self._refresh_list_panel()
+
+    def _gui_pill_select(self, index: int) -> None:
+        """Single-click on a pill: jump to that tempo."""
+        bpm = self._tempo_list.goto(index)
+        self._user_set_bpm(bpm)
+        self._refresh_list_panel()
+
+    def _gui_pill_remove(self, index: int) -> None:
+        """
+        Middle-click on a pill: remove that entry from the list.
+
+        If the removed entry was active, the new active tempo (the next one
+        in the list) is applied immediately.  If the list becomes empty the
+        panel collapses but the current BPM is left unchanged.
+        """
+        was_active = (index == self._tempo_list.index)
+        self._tempo_list.remove(index)
+        if was_active and self._tempo_list.current is not None:
+            self._user_set_bpm(self._tempo_list.current)
+        self._refresh_list_panel()
+
+    def _gui_pill_context(self, event, index: int) -> str:
+        """
+        Right-click on a pill: show a small context menu.
+
+        Returns ``"break"`` so the event does not propagate to the
+        no-titlebar ``bind_all`` quit menu.
+        """
+        bpm   = self._tempo_list.tempos[index]
+        label = f"{bpm:.{self.args.precision}f}"
+        menu  = tk.Menu(self.root, tearoff=0)
+        menu.add_command(
+            label=f"Switch to {label}",
+            command=lambda: self._gui_pill_select(index),
+        )
+        menu.add_command(
+            label="Remove from list",
+            command=lambda: self._gui_pill_remove(index),
+        )
+        try:
+            menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            menu.grab_release()
+        return "break"
+
     # ── Button hold‑repeat ─────────────────────────────────────────────────────
     def _btn_press(self, direction: int) -> None:
         """Immediate tick on press, then schedule the first auto‑repeat."""
@@ -470,6 +525,16 @@ class BigTempo:
             self.context_menu.add_separator()
             self.context_menu.add_command(label="Cancel", command=lambda: None)
 
+        # Double-click on the main canvas appends the current BPM to the list
+        self.canvas.bind("<Double-Button-1>", lambda e: self._gui_list_append())
+
+        # Mouse-wheel scroll adjusts BPM (Linux: Button-4/5; other: MouseWheel)
+        for widget in (self.canvas, self._pill_canvas):
+            widget.bind("<Button-4>",   lambda e: self._scroll_bpm(+1))
+            widget.bind("<Button-5>",   lambda e: self._scroll_bpm(-1))
+            widget.bind("<MouseWheel>",
+                        lambda e: self._scroll_bpm(+1 if e.delta > 0 else -1))
+
         # (tempo list panel already created above)
 
     # ── Tempo list panel ───────────────────────────────────────────────────────
@@ -543,12 +608,14 @@ class BigTempo:
             label  = f"{bpm:.{self.args.precision}f}"
             tw     = font_obj.measure(label)
             x1     = x + tw + LIST_PILL_PAD_X * 2
+            tag    = f"pill_{i}"
 
             # Pill background rectangle
             self._pill_canvas.create_rectangle(
                 x, y0, x1, y1,
                 fill=LIST_PILL_ACT_BG if active else LIST_PILL_BG,
                 outline="",
+                tags=(tag,),
             )
             # Pill text
             self._pill_canvas.create_text(
@@ -557,8 +624,31 @@ class BigTempo:
                 anchor="w",
                 fill=LIST_PILL_ACT_FG if active else LIST_PILL_FG,
                 font=(FONT_FAMILY, LIST_PILL_FONT_SIZE),
+                tags=(tag,),
             )
             x = x1 + LIST_PILL_GAP
+
+            # Bind interactions for this pill
+            self._pill_canvas.tag_bind(
+                tag, "<Button-1>",
+                lambda e, idx_=i: self._gui_pill_select(idx_),
+            )
+            self._pill_canvas.tag_bind(
+                tag, "<Button-2>",
+                lambda e, idx_=i: self._gui_pill_remove(idx_),
+            )
+            self._pill_canvas.tag_bind(
+                tag, "<Button-3>",
+                lambda e, idx_=i: self._gui_pill_context(e, idx_),
+            )
+            self._pill_canvas.tag_bind(
+                tag, "<Enter>",
+                lambda e: self._pill_canvas.configure(cursor="hand2"),
+            )
+            self._pill_canvas.tag_bind(
+                tag, "<Leave>",
+                lambda e: self._pill_canvas.configure(cursor=""),
+            )
 
     def _resize_to_content(self) -> None:
         """

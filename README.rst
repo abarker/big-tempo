@@ -28,7 +28,9 @@ Features
 - **Unified send lists** – each trigger maps to a list of MIDI and/or OSC
   action dicts, so you can fan out to multiple destinations in one config line
 - **Tempo list** – save BPM snapshots during soundcheck and cycle through
-  them live via a single footswitch
+  them live via a single footswitch; also fully controllable from the mouse
+  (double-click to append, click a pill to jump, middle-click to remove,
+  scroll wheel to nudge BPM)
 - Per-receive send lists – any incoming CC can fire extra MIDI and OSC
   messages independently of its BPM action
 - Adopts JACK tempo changes from an external master (e.g. Hydrogen)
@@ -111,6 +113,11 @@ All CLI options::
     --fg COLOR            Foreground colour (default: black)
     --always-on-top       Keep window above all others
     --no-titlebar         Remove title bar; enables click-drag to move
+    --save-pos [FILE]     Save the window position on exit and restore it on
+                          the next run.  With no argument, uses
+                          ~/.config/big-tempo/window.pos.  Pass an explicit
+                          path when running multiple configs that need
+                          separate positions.
 
 
 Config file
@@ -362,12 +369,45 @@ The pointer starts before the first entry.  The first ``list_next`` always
 recalls the first saved tempo.  Appending during a cycle extends the list
 without disturbing the current position.
 
+**Mouse control (no MIDI controller needed)**
+
+The tempo list is also fully operable from the mouse:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 28 42
+
+   * - Gesture
+     - Effect
+   * - Double-click the BPM display
+     - Append current BPM to the list
+   * - Single-click a pill
+     - Jump directly to that tempo and activate it
+   * - Middle-click a pill
+     - Remove that entry from the list
+   * - Right-click a pill
+     - Context menu: *Switch to this tempo* / *Remove from list*
+   * - Scroll wheel (display or pill row)
+     - Nudge BPM up / down by ``buttons.increment``
+
+Pills grow a hand cursor on hover.  When the last entry is removed the pill
+row collapses automatically.
+
+**Pointer behaviour when removing a pill**
+
+- Removing the **active** entry moves to the next one (wrapping to the first
+  if the removed entry was last).
+- Removing an **inactive** entry before the active one shifts the pointer
+  back by one so the same entry stays active.
+- Removing an **inactive** entry after the active one leaves the pointer
+  unchanged.
+
 **Editing a saved tempo live** – by default (``"list_update_on_change": True``),
-any user-initiated BPM change (button press or incoming MIDI) while a tempo
-list entry is active overwrites that entry with the new value.  The pill
-display updates immediately.  This lets you nudge a saved tempo on the fly
-without having to clear and re-capture.  Set the option to ``False`` if you
-want saved tempos to stay fixed once captured.
+any user-initiated BPM change (button press, incoming MIDI, or scroll wheel)
+while a tempo list entry is active overwrites that entry with the new value.
+The pill display updates immediately.  This lets you nudge a saved tempo on
+the fly without having to clear and re-capture.  Set the option to ``False``
+if you want saved tempos to stay fixed once captured.
 
 Button hold-repeat
 ~~~~~~~~~~~~~~~~~~

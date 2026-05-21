@@ -260,3 +260,196 @@ class TestScenarios:
         tl.next()           # index 2 → 140.0 (new entry reached)
         tl.next()           # wraps to index 0 → 100.0
         assert tl.current == 100.0
+
+
+# ── goto() ─────────────────────────────────────────────────────────────────────
+
+class TestGoto:
+    def test_returns_correct_bpm(self):
+        tl = TempoList()
+        for t in (100.0, 120.0, 140.0): tl.append(t)
+        assert tl.goto(1) == 120.0
+
+    def test_sets_index(self):
+        tl = TempoList()
+        for t in (100.0, 120.0, 140.0): tl.append(t)
+        tl.goto(2)
+        assert tl.index == 2
+
+    def test_goto_first(self):
+        tl = TempoList()
+        for t in (100.0, 120.0): tl.append(t)
+        tl.goto(1)
+        tl.goto(0)
+        assert tl.index == 0
+        assert tl.current == 100.0
+
+    def test_goto_last(self):
+        tl = TempoList()
+        for t in (100.0, 120.0, 140.0): tl.append(t)
+        tl.goto(2)
+        assert tl.current == 140.0
+
+    def test_updates_current(self):
+        tl = TempoList()
+        for t in (100.0, 120.0, 140.0): tl.append(t)
+        tl.goto(1)
+        assert tl.current == 120.0
+
+    def test_next_continues_from_goto_position(self):
+        tl = TempoList()
+        for t in (100.0, 120.0, 140.0): tl.append(t)
+        tl.goto(1)           # jump to 120.0 (index 1)
+        assert tl.next() == 140.0   # advances to index 2
+
+    def test_goto_then_next_wraps(self):
+        tl = TempoList()
+        for t in (100.0, 120.0, 140.0): tl.append(t)
+        tl.goto(2)           # jump to last
+        assert tl.next() == 100.0   # wraps to index 0
+
+    def test_out_of_range_raises(self):
+        tl = TempoList()
+        tl.append(120.0)
+        with pytest.raises(IndexError):
+            tl.goto(1)
+
+    def test_negative_index_raises(self):
+        tl = TempoList()
+        tl.append(120.0)
+        with pytest.raises(IndexError):
+            tl.goto(-1)
+
+    def test_empty_list_raises(self):
+        with pytest.raises(IndexError):
+            TempoList().goto(0)
+
+
+# ── remove() ───────────────────────────────────────────────────────────────────
+
+class TestRemove:
+
+    # ── basic correctness ──────────────────────────────────────────────────────
+
+    def test_reduces_length(self):
+        tl = TempoList()
+        for t in (100.0, 120.0, 140.0): tl.append(t)
+        tl.remove(1)
+        assert len(tl) == 2
+
+    def test_removes_correct_entry(self):
+        tl = TempoList()
+        for t in (100.0, 120.0, 140.0): tl.append(t)
+        tl.remove(1)
+        assert tl.tempos == [100.0, 140.0]
+
+    def test_out_of_range_raises(self):
+        tl = TempoList()
+        tl.append(120.0)
+        with pytest.raises(IndexError):
+            tl.remove(1)
+
+    def test_negative_index_raises(self):
+        tl = TempoList()
+        tl.append(120.0)
+        with pytest.raises(IndexError):
+            tl.remove(-1)
+
+    def test_empty_list_raises(self):
+        with pytest.raises(IndexError):
+            TempoList().remove(0)
+
+    # ── pointer rules: list becomes empty ─────────────────────────────────────
+
+    def test_remove_only_entry_resets_index(self):
+        tl = TempoList()
+        tl.append(120.0)
+        tl.remove(0)
+        assert tl.index == -1
+
+    def test_remove_only_entry_current_is_none(self):
+        tl = TempoList()
+        tl.append(120.0)
+        tl.remove(0)
+        assert tl.current is None
+
+    # ── pointer rules: removing the active entry ───────────────────────────────
+
+    def test_remove_active_middle_goes_to_next(self):
+        """Remove entry 1 (active) from [100, 120, 140] → new active = 140 at idx 1."""
+        tl = TempoList()
+        for t in (100.0, 120.0, 140.0): tl.append(t)
+        tl.goto(1)           # activate 120.0
+        tl.remove(1)
+        assert tl.current == 140.0
+        assert tl.index   == 1
+
+    def test_remove_active_last_wraps_to_first(self):
+        """Remove last active entry → pointer wraps to index 0."""
+        tl = TempoList()
+        for t in (100.0, 120.0, 140.0): tl.append(t)
+        tl.goto(2)           # activate 140.0 (last)
+        tl.remove(2)
+        assert tl.current == 100.0
+        assert tl.index   == 0
+
+    def test_remove_active_first_goes_to_new_first(self):
+        """Remove first active entry → pointer stays at 0, now pointing to old second."""
+        tl = TempoList()
+        for t in (100.0, 120.0, 140.0): tl.append(t)
+        tl.goto(0)           # activate 100.0
+        tl.remove(0)
+        assert tl.current == 120.0
+        assert tl.index   == 0
+
+    def test_remove_active_two_entry_list(self):
+        tl = TempoList()
+        tl.append(100.0); tl.append(120.0)
+        tl.goto(0)           # activate 100.0
+        tl.remove(0)
+        assert tl.current == 120.0
+        assert tl.index   == 0
+
+    # ── pointer rules: removing an inactive entry ──────────────────────────────
+
+    def test_remove_before_active_shifts_pointer(self):
+        """Remove entry before the active one → same entry stays active."""
+        tl = TempoList()
+        for t in (100.0, 120.0, 140.0): tl.append(t)
+        tl.goto(2)           # activate 140.0 at index 2
+        tl.remove(0)         # remove 100.0 (before active)
+        assert tl.current == 140.0
+        assert tl.index   == 1   # shifted from 2 → 1
+
+    def test_remove_after_active_pointer_unchanged(self):
+        """Remove entry after the active one → pointer unchanged."""
+        tl = TempoList()
+        for t in (100.0, 120.0, 140.0): tl.append(t)
+        tl.goto(0)           # activate 100.0 at index 0
+        tl.remove(2)         # remove 140.0 (after active)
+        assert tl.current == 100.0
+        assert tl.index   == 0
+
+    def test_remove_inactive_before_no_active_pointer_unchanged(self):
+        """Pointer is -1 (no active entry); remove doesn't crash."""
+        tl = TempoList()
+        for t in (100.0, 120.0, 140.0): tl.append(t)
+        # pointer is -1 (never advanced)
+        tl.remove(1)
+        assert tl.index == -1
+
+    # ── next() still works after remove ───────────────────────────────────────
+
+    def test_next_works_after_removing_active(self):
+        tl = TempoList()
+        for t in (100.0, 120.0, 140.0): tl.append(t)
+        tl.goto(1)
+        tl.remove(1)         # removes 120.0; now active is 140.0 at idx 1
+        assert tl.next() == 100.0   # wraps: idx 2 would be out of range → 0
+
+    def test_next_works_after_removing_inactive(self):
+        tl = TempoList()
+        for t in (100.0, 120.0, 140.0): tl.append(t)
+        tl.goto(0)
+        tl.remove(2)         # removes 140.0; active still 100.0 at idx 0
+        assert tl.next() == 120.0   # advances to index 1

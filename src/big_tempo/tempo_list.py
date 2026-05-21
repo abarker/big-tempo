@@ -98,6 +98,77 @@ class TempoList:
         self._index = (self._index + 1) % len(self._tempos)
         return self._tempos[self._index]
 
+    def goto(self, index: int) -> float:
+        """
+        Move the pointer directly to *index* and return the BPM there.
+
+        This is the direct-select equivalent of ``next()``: the caller gets
+        the BPM value so it can apply it immediately without a separate
+        ``current`` look-up.
+
+        Raises ``IndexError`` when *index* is out of range.
+
+        >>> tl = TempoList()
+        >>> tl.append(100.0); tl.append(120.0); tl.append(140.0)
+        >>> tl.goto(1)
+        120.0
+        >>> tl.index
+        1
+        """
+        if not 0 <= index < len(self._tempos):
+            raise IndexError(
+                f"TempoList index {index} out of range for list of length "
+                f"{len(self._tempos)}"
+            )
+        self._index = index
+        return self._tempos[index]
+
+    def remove(self, index: int) -> None:
+        """
+        Delete the entry at *index* and adjust the pointer.
+
+        Pointer rules
+        -------------
+        * List becomes empty → pointer resets to -1.
+        * Removed entry **was active** → pointer moves to what is now at
+          *index* (the old "next" entry).  If the removed entry was the last
+          one, the pointer wraps to 0 (consistent with ``next()`` wrapping).
+        * Removed entry was **before** the active entry → pointer decrements
+          by 1 so the same entry remains active.
+        * Removed entry was **after** the active entry → pointer unchanged.
+
+        Raises ``IndexError`` when *index* is out of range.
+
+        >>> tl = TempoList()
+        >>> for t in (100.0, 120.0, 140.0): tl.append(t)
+        >>> tl.next()   # activate 100.0 at index 0
+        100.0
+        >>> tl.remove(2)          # remove inactive 140.0
+        >>> tl.index              # pointer unchanged
+        0
+        >>> tl.remove(0)          # remove the active 100.0
+        >>> tl.current            # moved to next: 120.0
+        120.0
+        """
+        if not 0 <= index < len(self._tempos):
+            raise IndexError(
+                f"TempoList index {index} out of range for list of length "
+                f"{len(self._tempos)}"
+            )
+        was_active = (index == self._index)
+        del self._tempos[index]
+
+        if not self._tempos:
+            self._index = -1
+        elif was_active:
+            # Wrap to 0 if we just removed the last entry
+            if self._index >= len(self._tempos):
+                self._index = 0
+            # else: self._index already points at what was index+1
+        elif index < self._index:
+            self._index -= 1
+        # else index > self._index: pointer unaffected
+
     def clear(self) -> None:
         """
         Remove all stored tempos and reset the pointer.

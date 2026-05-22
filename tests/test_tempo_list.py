@@ -453,3 +453,70 @@ class TestRemove:
         tl.goto(0)
         tl.remove(2)         # removes 140.0; active still 100.0 at idx 0
         assert tl.next() == 120.0   # advances to index 1
+
+
+# ── set_at() ───────────────────────────────────────────────────────────────────
+
+class TestSetAt:
+    def test_updates_value(self):
+        tl = TempoList()
+        tl.append(100.0); tl.append(120.0)
+        tl.set_at(1, 125.0)
+        assert tl.tempos[1] == 125.0
+
+    def test_converts_to_float(self):
+        tl = TempoList()
+        tl.append(120)
+        tl.set_at(0, 130)
+        assert isinstance(tl.tempos[0], float)
+
+    def test_does_not_move_pointer_when_inactive(self):
+        tl = TempoList()
+        tl.append(100.0); tl.append(120.0)
+        tl.set_at(1, 125.0)
+        assert tl.index == -1
+
+    def test_does_not_move_pointer_when_active(self):
+        tl = TempoList()
+        tl.append(100.0); tl.append(120.0)
+        tl.goto(0)
+        tl.set_at(0, 105.0)
+        assert tl.index == 0
+
+    def test_active_entry_value_updates(self):
+        """set_at on the active entry changes what current returns."""
+        tl = TempoList()
+        tl.append(100.0); tl.append(120.0)
+        tl.goto(0)
+        tl.set_at(0, 105.0)
+        assert tl.current == 105.0
+
+    def test_other_entries_unaffected(self):
+        tl = TempoList()
+        for t in (100.0, 120.0, 140.0): tl.append(t)
+        tl.set_at(1, 125.0)
+        assert tl.tempos[0] == 100.0
+        assert tl.tempos[2] == 140.0
+
+    def test_out_of_range_raises(self):
+        tl = TempoList()
+        tl.append(120.0)
+        with pytest.raises(IndexError):
+            tl.set_at(1, 130.0)
+
+    def test_negative_index_raises(self):
+        tl = TempoList()
+        tl.append(120.0)
+        with pytest.raises(IndexError):
+            tl.set_at(-1, 130.0)
+
+    def test_empty_list_raises(self):
+        with pytest.raises(IndexError):
+            TempoList().set_at(0, 120.0)
+
+    def test_next_returns_updated_value(self):
+        """After set_at, next() yields the new value."""
+        tl = TempoList()
+        tl.append(100.0); tl.append(120.0)
+        tl.set_at(0, 105.0)
+        assert tl.next() == 105.0

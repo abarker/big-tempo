@@ -98,6 +98,31 @@ class TempoList:
         self._index = (self._index + 1) % len(self._tempos)
         return self._tempos[self._index]
 
+    def set_at(self, index: int, bpm: float) -> None:
+        """
+        Overwrite the value at *index* without moving the pointer.
+
+        This is the direct-index equivalent of ``replace_current()``.
+        Useful for editing a specific list entry in-place (e.g. mouse-wheel
+        nudge on a pill) without activating it or changing the playing tempo.
+
+        Raises ``IndexError`` when *index* is out of range.
+
+        >>> tl = TempoList()
+        >>> tl.append(100.0); tl.append(120.0)
+        >>> tl.set_at(1, 125.0)
+        >>> tl.tempos
+        [100.0, 125.0]
+        >>> tl.index        # pointer unaffected
+        -1
+        """
+        if not 0 <= index < len(self._tempos):
+            raise IndexError(
+                f"TempoList index {index} out of range for list of length "
+                f"{len(self._tempos)}"
+            )
+        self._tempos[index] = float(bpm)
+
     def goto(self, index: int) -> float:
         """
         Move the pointer directly to *index* and return the BPM there.

@@ -271,6 +271,22 @@ class BigTempo:
                 self.midi.send_with_context(spec, bpm=self.current_bpm, raw=raw)
 
     # ── GUI tempo-list actions ─────────────────────────────────────────────────
+    def _gui_pill_scroll(self, index: int, direction: int) -> str:
+        """
+        Mouse-wheel over a specific pill: nudge that entry's stored BPM by
+        one increment step without activating it or changing the playing tempo.
+
+        Quantize and clamp are applied the same way as any other BPM change.
+        Returns ``"break"`` so the event does not bubble to the canvas-level
+        scroll binding (which would also change the currently playing BPM).
+        """
+        inc     = float(self.cfg.get("buttons", {}).get("increment", 1.0))
+        raw     = self._tempo_list.tempos[index] + direction * inc
+        new_bpm = self._clamp(quantize_bpm(raw, self.cfg))
+        self._tempo_list.set_at(index, new_bpm)
+        self._refresh_list_panel()
+        return "break"
+
     def _scroll_bpm(self, direction: int) -> None:
         """Handle mouse-wheel scroll over the canvas or pill row."""
         inc = float(self.cfg.get("buttons", {}).get("increment", 1.0))
@@ -648,6 +664,23 @@ class BigTempo:
             self._pill_canvas.tag_bind(
                 tag, "<Leave>",
                 lambda e: self._pill_canvas.configure(cursor=""),
+            )
+            # Scroll wheel over a pill nudges that entry's value in-place
+            # without activating it.  "break" stops the event reaching the
+            # canvas-level scroll binding that changes the playing BPM.
+            self._pill_canvas.tag_bind(
+                tag, "<Button-4>",
+                lambda e, idx_=i: self._gui_pill_scroll(idx_, +1),
+            )
+            self._pill_canvas.tag_bind(
+                tag, "<Button-5>",
+                lambda e, idx_=i: self._gui_pill_scroll(idx_, -1),
+            )
+            self._pill_canvas.tag_bind(
+                tag, "<MouseWheel>",
+                lambda e, idx_=i: self._gui_pill_scroll(
+                    idx_, +1 if e.delta > 0 else -1
+                ),
             )
 
     def _resize_to_content(self) -> None:

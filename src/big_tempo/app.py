@@ -251,10 +251,7 @@ class BigTempo:
             self._tempo_list.append(self.current_bpm)
             self._refresh_list_panel()
         elif action == "list_next":
-            bpm = self._tempo_list.next()
-            if bpm is not None:
-                self._user_set_bpm(bpm)
-            self._refresh_list_panel()
+            self._gui_list_next()
         elif action == "list_clear":
             self._tempo_list.clear()
             self._refresh_list_panel()
@@ -298,19 +295,35 @@ class BigTempo:
         """
         Nudge the stored BPM of pill *index* by one increment step.
 
-        Does not activate the pill or change the currently playing tempo.
+        If the scrolled pill is the active one the playing tempo follows
+        immediately (matching the reverse behaviour where button/MIDI changes
+        update the active slot).  Inactive pills are edited in-place without
+        affecting the playing tempo.
+
         Quantize and clamp are applied identically to any other BPM change.
         """
         inc     = float(self.cfg.get("buttons", {}).get("increment", 1.0))
         raw     = self._tempo_list.tempos[index] + direction * inc
         new_bpm = self._clamp(quantize_bpm(raw, self.cfg))
         self._tempo_list.set_at(index, new_bpm)
-        self._refresh_list_panel()
+        if index == self._tempo_list.index:
+            # Active pill: update playing BPM and fire sends.
+            # _user_set_bpm calls _refresh_list_panel internally.
+            self._user_set_bpm(new_bpm)
+        else:
+            self._refresh_list_panel()
 
     def _scroll_bpm(self, direction: int) -> None:
         """Handle mouse-wheel scroll over the canvas or pill row."""
         inc = float(self.cfg.get("buttons", {}).get("increment", 1.0))
         self._user_set_bpm(self.current_bpm + direction * inc)
+
+    def _gui_list_next(self) -> None:
+        """Advance the tempo list by one step and apply the new BPM."""
+        bpm = self._tempo_list.next()
+        if bpm is not None:
+            self._user_set_bpm(bpm)
+        self._refresh_list_panel()
 
     def _gui_list_append(self) -> None:
         """Double-click on the main canvas: save current BPM to the list."""
@@ -470,6 +483,8 @@ class BigTempo:
         # Route all close paths through _on_close so position is always saved
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
         self.root.bind("<Escape>", lambda _: self._on_close())
+        # Tab advances the tempo list (returns "break" to suppress focus change)
+        self.root.bind("<Tab>", lambda _: self._gui_list_next() or "break")
 
     # ── Widgets ────────────────────────────────────────────────────────────────
     def _create_widgets(self) -> None:

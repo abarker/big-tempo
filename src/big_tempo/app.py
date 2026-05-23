@@ -271,21 +271,41 @@ class BigTempo:
                 self.midi.send_with_context(spec, bpm=self.current_bpm, raw=raw)
 
     # ── GUI tempo-list actions ─────────────────────────────────────────────────
-    def _gui_pill_scroll(self, index: int, direction: int) -> str:
+    def _pill_canvas_scroll(self, event, direction: int) -> None:
         """
-        Mouse-wheel over a specific pill: nudge that entry's stored BPM by
-        one increment step without activating it or changing the playing tempo.
+        Canvas-level scroll dispatcher for the pill row.
 
-        Quantize and clamp are applied the same way as any other BPM change.
-        Returns ``"break"`` so the event does not bubble to the canvas-level
-        scroll binding (which would also change the currently playing BPM).
+        ``<Button-4/5>`` and ``<MouseWheel>`` cannot be used with canvas item
+        ``tag_bind`` (Tk rejects them with "requested illegal events").  Instead
+        we bind at the canvas-widget level and use ``find_overlapping`` to
+        determine whether the cursor is over a specific pill.
+
+        - Over a pill   → nudge that pill's stored value (no BPM change)
+        - Over empty space → global BPM scroll (same as the main canvas)
+        """
+        items = self._pill_canvas.find_overlapping(
+            event.x, event.y, event.x, event.y
+        )
+        for item_id in reversed(items):   # topmost item first
+            index = self._pill_item_to_index.get(item_id)
+            if index is not None:
+                self._gui_pill_scroll(index, direction)
+                return
+        # Cursor is over the background or separator line → global scroll
+        self._scroll_bpm(direction)
+
+    def _gui_pill_scroll(self, index: int, direction: int) -> None:
+        """
+        Nudge the stored BPM of pill *index* by one increment step.
+
+        Does not activate the pill or change the currently playing tempo.
+        Quantize and clamp are applied identically to any other BPM change.
         """
         inc     = float(self.cfg.get("buttons", {}).get("increment", 1.0))
         raw     = self._tempo_list.tempos[index] + direction * inc
         new_bpm = self._clamp(quantize_bpm(raw, self.cfg))
         self._tempo_list.set_at(index, new_bpm)
         self._refresh_list_panel()
-        return "break"
 
     def _scroll_bpm(self, direction: int) -> None:
         """Handle mouse-wheel scroll over the canvas or pill row."""
@@ -544,12 +564,23 @@ class BigTempo:
         # Double-click on the main canvas appends the current BPM to the list
         self.canvas.bind("<Double-Button-1>", lambda e: self._gui_list_append())
 
-        # Mouse-wheel scroll adjusts BPM (Linux: Button-4/5; other: MouseWheel)
-        for widget in (self.canvas, self._pill_canvas):
-            widget.bind("<Button-4>",   lambda e: self._scroll_bpm(+1))
-            widget.bind("<Button-5>",   lambda e: self._scroll_bpm(-1))
-            widget.bind("<MouseWheel>",
-                        lambda e: self._scroll_bpm(+1 if e.delta > 0 else -1))
+        # Mouse-wheel scroll on the main canvas adjusts BPM
+        self.canvas.bind("<Button-4>",  lambda e: self._scroll_bpm(+1))
+        self.canvas.bind("<Button-5>",  lambda e: self._scroll_bpm(-1))
+        self.canvas.bind("<MouseWheel>",
+                         lambda e: self._scroll_bpm(+1 if e.delta > 0 else -1))
+
+        # Pill canvas scroll: dispatch to the pill under the cursor (to edit
+        # that entry) or fall back to global BPM scroll over empty space.
+        # Canvas item tag_bind rejects <Button-4/5>, so we handle it at the
+        # canvas-widget level and use find_overlapping to pick the right pill.
+        self._pill_canvas.bind(
+            "<Button-4>",   lambda e: self._pill_canvas_scroll(e, +1))
+        self._pill_canvas.bind(
+            "<Button-5>",   lambda e: self._pill_canvas_scroll(e, -1))
+        self._pill_canvas.bind(
+            "<MouseWheel>",
+            lambda e: self._pill_canvas_scroll(e, +1 if e.delta > 0 else -1))
 
         # (tempo list panel already created above)
 
@@ -575,7 +606,8 @@ class BigTempo:
         # With side="top", top_frame's expand=True would eat all extra space
         # and compress the canvas to zero pixels.
         self._pill_canvas.pack(side="bottom", fill="x")
-        self._panel_visible: bool = False
+        self._panel_visible: bool     = False
+        self._pill_item_to_index: dict[int, int] = {}  # canvas item id → pill index
 
     def _refresh_list_panel(self) -> None:
         """
@@ -590,6 +622,7 @@ class BigTempo:
         idx    = self._tempo_list.index
 
         self._pill_canvas.delete("all")
+        self._pill_item_to_index = {}   # rebuild on every redraw
 
         if not tempos:
             if self._panel_visible:
@@ -627,14 +660,14 @@ class BigTempo:
             tag    = f"pill_{i}"
 
             # Pill background rectangle
-            self._pill_canvas.create_rectangle(
+            rect_id = self._pill_canvas.create_rectangle(
                 x, y0, x1, y1,
                 fill=LIST_PILL_ACT_BG if active else LIST_PILL_BG,
                 outline="",
                 tags=(tag,),
             )
             # Pill text
-            self._pill_canvas.create_text(
+            text_id = self._pill_canvas.create_text(
                 x + LIST_PILL_PAD_X, cy,
                 text=label,
                 anchor="w",
@@ -642,6 +675,11 @@ class BigTempo:
                 font=(FONT_FAMILY, LIST_PILL_FONT_SIZE),
                 tags=(tag,),
             )
+            # Register both items so the canvas-level scroll dispatcher can
+            # identify which pill the cursor is over (tag_bind rejects Button-4/5)
+            self._pill_item_to_index[rect_id] = i
+            self._pill_item_to_index[text_id] = i
+
             x = x1 + LIST_PILL_GAP
 
             # Bind interactions for this pill
@@ -664,23 +702,6 @@ class BigTempo:
             self._pill_canvas.tag_bind(
                 tag, "<Leave>",
                 lambda e: self._pill_canvas.configure(cursor=""),
-            )
-            # Scroll wheel over a pill nudges that entry's value in-place
-            # without activating it.  "break" stops the event reaching the
-            # canvas-level scroll binding that changes the playing BPM.
-            self._pill_canvas.tag_bind(
-                tag, "<Button-4>",
-                lambda e, idx_=i: self._gui_pill_scroll(idx_, +1),
-            )
-            self._pill_canvas.tag_bind(
-                tag, "<Button-5>",
-                lambda e, idx_=i: self._gui_pill_scroll(idx_, -1),
-            )
-            self._pill_canvas.tag_bind(
-                tag, "<MouseWheel>",
-                lambda e, idx_=i: self._gui_pill_scroll(
-                    idx_, +1 if e.delta > 0 else -1
-                ),
             )
 
     def _resize_to_content(self) -> None:

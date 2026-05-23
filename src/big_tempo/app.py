@@ -854,6 +854,18 @@ class BigTempo:
                                     )
                                 adopted = snapped
                             self.current_bpm = self._clamp(adopted)
+                            # Mirror the list_update_on_change behaviour from
+                            # _user_set_bpm: keep the active list slot in sync
+                            # with JACK-adopted tempos the same way it tracks
+                            # user-initiated changes.
+                            if self.cfg.get("list_update_on_change", True):
+                                if self._tempo_list.replace_current(self.current_bpm):
+                                    self._dbg(
+                                        f"JACK adopt list_update: slot "
+                                        f"{self._tempo_list.index} "
+                                        f"→ {self.current_bpm:.3f}"
+                                    )
+                                    self._refresh_list_panel()
                             if quantized:
                                 self._fire_on_quantize()
 

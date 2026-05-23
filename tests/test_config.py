@@ -168,7 +168,52 @@ def _valid_cfg(**overrides):
     return cfg
 
 
-class TestValidateConfig:
+class TestLoadConfigStrict:
+    """load_config(strict=True) should exit on parse errors; not on missing files."""
+
+    def test_strict_missing_file_returns_defaults(self, tmp_path):
+        """Missing file is still silently ignored even in strict mode."""
+        cfg = load_config(str(tmp_path / "nonexistent.py"), strict=True)
+        assert cfg["min_bpm"] == DEFAULT_CFG["min_bpm"]
+
+    def test_strict_syntax_error_exits(self, tmp_path):
+        f = tmp_path / "bad.py"
+        f.write_text("{ this is not valid python }")
+        with pytest.raises(SystemExit) as exc_info:
+            load_config(str(f), strict=True)
+        assert exc_info.value.code == 1
+
+    def test_strict_not_a_dict_exits(self, tmp_path):
+        f = tmp_path / "bad.py"
+        f.write_text("[1, 2, 3]")
+        with pytest.raises(SystemExit) as exc_info:
+            load_config(str(f), strict=True)
+        assert exc_info.value.code == 1
+
+    def test_strict_error_message_printed(self, tmp_path, capsys):
+        f = tmp_path / "bad.py"
+        f.write_text("{ bad }")
+        with pytest.raises(SystemExit):
+            load_config(str(f), strict=True)
+        assert "Error:" in capsys.readouterr().err
+
+    def test_non_strict_syntax_error_warns_and_returns_defaults(self, tmp_path):
+        f = tmp_path / "bad.py"
+        f.write_text("{ bad }")
+        cfg = load_config(str(f), strict=False)
+        assert cfg["min_bpm"] == DEFAULT_CFG["min_bpm"]
+
+    def test_non_strict_syntax_error_prints_warning(self, tmp_path, capsys):
+        f = tmp_path / "bad.py"
+        f.write_text("{ bad }")
+        load_config(str(f), strict=False)
+        assert "Warning:" in capsys.readouterr().err
+
+    def test_strict_valid_file_loads_normally(self, tmp_path):
+        f = tmp_path / "cfg.py"
+        f.write_text('{"min_bpm": 40.0}')
+        cfg = load_config(str(f), strict=True)
+        assert cfg["min_bpm"] == 40.0
 
     # ── Clean config ───────────────────────────────────────────────────────────
 

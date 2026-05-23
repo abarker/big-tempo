@@ -13,7 +13,22 @@ from big_tempo.config import load_config
 
 def main() -> None:
     args = parse_args()
-    cfg  = load_config(args.config)
+
+    # Validate an explicitly supplied --config path before trying to load it.
+    # The default path (~/.config/big-tempo/config.py) may legitimately not
+    # exist (new install), so that case is handled silently inside load_config.
+    if args.config is not None:
+        import os as _os
+        if not _os.path.exists(args.config):
+            print(f"Error: config file not found: {args.config}", file=sys.stderr)
+            sys.exit(1)
+        if not _os.path.isfile(args.config):
+            print(f"Error: config path is not a file: {args.config}", file=sys.stderr)
+            sys.exit(1)
+
+    # strict=True: a parse error in an explicitly supplied file is fatal rather
+    # than silently falling back to defaults (which would be very confusing).
+    cfg = load_config(args.config, strict=args.config is not None)
     root = tk.Tk()
     app  = BigTempo(root, args, cfg)
 

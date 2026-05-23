@@ -354,24 +354,66 @@ reused per unique ``(host, port)`` pair.
 Tempo list
 ~~~~~~~~~~
 
-Save a set of BPM values during soundcheck and cycle through them live::
+The tempo list lets you save BPM snapshots and switch between them during a
+performance.  It operates in two modes: **adding tempos one at a time** as you
+dial them in, or **pre-loading a fixed number of slots** and adjusting each
+one before you start.
 
-    # Soundcheck: dial each song's tempo, then:
-    CC23  →  list_append   (repeat for each song)
+**Workflow 1 – soundcheck capture**
 
-    # Performance: one stomp per song to change tempo
-    CC24  →  list_next     (wraps back to first entry after the last)
+Dial each song's tempo and append it as you go::
+
+    # Soundcheck: set the tempo, then append it
+    CC23  →  list_append      (or double-click the BPM display)
+    ...repeat for each song...
+
+    # Performance: one stomp per song to advance
+    CC24  →  list_next        (wraps back to the first entry after the last)
 
     # End of night
     CC25  →  list_clear
 
-The pointer starts before the first entry.  The first ``list_next`` always
-recalls the first saved tempo.  Appending during a cycle extends the list
-without disturbing the current position.
+The first ``list_next`` always recalls the first saved tempo.  Appending
+during a cycle extends the list without disturbing the current position.
+
+**Workflow 2 – pre-load and adjust**
+
+If you know how many songs you need upfront, load the current tempo into N
+slots and then adjust each one individually::
+
+    # Pre-load: append the current tempo N times (once per song)
+    CC23 × N  →  list_append × N
+
+    # Switch to the list
+    CC24  →  list_next          (activates slot 1)
+
+    # Adjust the active slot to the correct tempo, then advance
+    CC20/21  →  up / down       (or ▲/▼ buttons, or scroll wheel over display)
+    CC24  →  list_next          (move to slot 2, repeat)
+
+    # Or: stay on any slot and scroll the wheel over its pill to adjust it
+    #     without activating it first
+
+**Tempo follows the list**
+
+While a list entry is active (``list_next`` has been called at least once),
+user-initiated BPM changes – button presses, incoming MIDI, or scroll wheel
+on the display – automatically update the stored value for the active slot
+as well.  This is controlled by ``"list_update_on_change"`` in the config:
+
+- ``True`` *(default)* – the active slot tracks the playing BPM.  Nudge
+  freely; the slot stays in sync.
+- ``False`` – saved slots are frozen once captured.  User changes still play
+  but do not overwrite the stored value.
+
+**Editing an inactive slot**
+
+Scroll the mouse wheel over any pill to nudge that slot's stored BPM by one
+``buttons.increment`` step, regardless of whether it is active.  The change
+is immediately visible in the pill but does not affect the playing tempo
+until that slot is activated.
 
 **Mouse control (no MIDI controller needed)**
-
-The tempo list is also fully operable from the mouse:
 
 .. list-table::
    :header-rows: 1
@@ -387,8 +429,10 @@ The tempo list is also fully operable from the mouse:
      - Remove that entry from the list
    * - Right-click a pill
      - Context menu: *Switch to this tempo* / *Remove from list*
-   * - Scroll wheel (display or pill row)
-     - Nudge BPM up / down by ``buttons.increment``
+   * - Scroll wheel over the display
+     - Nudge playing BPM up / down by ``buttons.increment``
+   * - Scroll wheel over a pill
+     - Nudge that slot's stored BPM without activating it
 
 Pills grow a hand cursor on hover.  When the last entry is removed the pill
 row collapses automatically.
@@ -401,13 +445,6 @@ row collapses automatically.
   back by one so the same entry stays active.
 - Removing an **inactive** entry after the active one leaves the pointer
   unchanged.
-
-**Editing a saved tempo live** – by default (``"list_update_on_change": True``),
-any user-initiated BPM change (button press, incoming MIDI, or scroll wheel)
-while a tempo list entry is active overwrites that entry with the new value.
-The pill display updates immediately.  This lets you nudge a saved tempo on
-the fly without having to clear and re-capture.  Set the option to ``False``
-if you want saved tempos to stay fixed once captured.
 
 Button hold-repeat
 ~~~~~~~~~~~~~~~~~~

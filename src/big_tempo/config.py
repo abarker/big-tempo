@@ -270,7 +270,7 @@ def _val_osc_action(loc: str, spec: dict, out: list) -> None:
 
 
 # ── Loader ─────────────────────────────────────────────────────────────────────
-def load_config(path: Optional[str] = None) -> dict:
+def load_config(path: Optional[str] = None, strict: bool = False) -> dict:
     """
     Return a config dict merged from built-in defaults and the Python dict
     literal file at *path* (default: ``~/.config/big-tempo/config.py``).
@@ -304,9 +304,18 @@ def load_config(path: Optional[str] = None) -> dict:
     - if both sides are dicts → ``dict.update()`` (sub-keys override, rest kept)
     - otherwise → replace the default value outright
 
-    A missing file is silently ignored (defaults are returned).
-    A file that exists but is malformed prints a warning to stderr and
-    falls back to defaults.
+    Parameters
+    ----------
+    path : optional config file path.  ``None`` uses ``DEFAULT_CONFIG_PATH``.
+    strict : when ``True`` (used when ``--config`` is explicitly supplied),
+             a file that exists but cannot be parsed is treated as a fatal
+             error (``sys.exit(1)``) rather than falling back to defaults.
+             A missing file under strict mode is already handled by the
+             caller before ``load_config`` is invoked.
+
+    A missing file is silently ignored when *strict* is ``False`` (defaults
+    are returned).  A file that exists but is malformed prints a warning to
+    stderr; under strict mode the process exits, otherwise defaults are used.
     """
     cfg = copy.deepcopy(DEFAULT_CFG)
     resolved = path if path is not None else DEFAULT_CONFIG_PATH
@@ -323,7 +332,11 @@ def load_config(path: Optional[str] = None) -> dict:
                 f"config file must contain a dict literal, got {type(user).__name__}"
             )
     except Exception as exc:
-        print(f"Warning: cannot load config '{resolved}': {exc}", file=sys.stderr)
+        msg = f"Cannot load config '{resolved}': {exc}"
+        if strict:
+            print(f"Error: {msg}", file=sys.stderr)
+            sys.exit(1)
+        print(f"Warning: {msg}", file=sys.stderr)
         return cfg
 
     for k, v in user.items():

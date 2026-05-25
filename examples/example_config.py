@@ -66,6 +66,7 @@
     # Tempo list actions:
     #   list_append – save current BPM to end of tempo list
     #   list_next   – step to next saved tempo cyclically and apply it
+    #   list_prev   – step to previous saved tempo cyclically and apply it
     #   list_clear  – discard all saved tempos and reset the pointer
     #
     # Send-only actions (fire a "send" list without changing BPM):
@@ -81,7 +82,8 @@
         "CC22": {"action": "set"},
         "CC23": {"action": "list_append"},
         "CC24": {"action": "list_next"},
-        "CC25": {"action": "list_clear"},
+        "CC25": {"action": "list_prev"},
+        "CC26": {"action": "list_clear"},
 
         # Trigger Hydrogen PLAY via OSC – no BPM change
         # "CC26": {"action": "osc_only",

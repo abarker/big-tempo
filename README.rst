@@ -27,10 +27,11 @@ Features
   Hydrogen, which only supports relative BPM over MIDI)
 - **Unified send lists** – each trigger maps to a list of MIDI and/or OSC
   action dicts, so you can fan out to multiple destinations in one config line
-- **Tempo list** – save BPM snapshots during soundcheck and cycle through
-  them live via a single footswitch; also fully controllable from the mouse
-  (double-click to append, click a pill to jump, middle-click to remove,
-  scroll wheel to nudge BPM)
+- **Tempo list** – save BPM snapshots during soundcheck and cycle forward or
+  backward through them live (``list_next`` / ``list_prev``); also fully
+  controllable from the mouse and keyboard (double-click to append, Tab /
+  Shift+Tab to step, click a pill to jump, middle-click to remove, scroll
+  wheel to nudge BPM)
 - Per-receive send lists – any incoming CC can fire extra MIDI and OSC
   messages independently of its BPM action
 - Adopts JACK tempo changes from an external master (e.g. Hydrogen)
@@ -201,8 +202,11 @@ Receive actions
    * - ``list_append``
      - Save the current BPM to the end of the tempo list
    * - ``list_next``
-     - Advance the tempo-list pointer one step (wrapping), apply that BPM,
-       and fire outgoing sends
+     - Advance the tempo-list pointer one step forward (wrapping from last back
+       to first), apply that BPM, and fire outgoing sends
+   * - ``list_prev``
+     - Step the tempo-list pointer one step backward (wrapping from first back
+       to last), apply that BPM, and fire outgoing sends
    * - ``list_clear``
      - Discard all saved tempos and reset the list pointer
    * - ``osc_only``
@@ -367,13 +371,15 @@ Dial each song's tempo and append it as you go::
     CC23  →  list_append      (or double-click the BPM display)
     ...repeat for each song...
 
-    # Performance: one stomp per song to advance
-    CC24  →  list_next        (wraps back to the first entry after the last)
+    # Performance: one stomp per song to advance, another to go back if needed
+    CC24  →  list_next        (wraps from last back to first)
+    CC103 →  list_prev        (wraps from first back to last)
 
     # End of night
     CC25  →  list_clear
 
-The first ``list_next`` always recalls the first saved tempo.  Appending
+The first ``list_next`` always recalls the first saved tempo; the first
+``list_prev`` recalls the last.  Appending
 during a cycle extends the list without disturbing the current position.
 
 **Workflow 2 – pre-load and adjust**
@@ -396,10 +402,10 @@ slots and then adjust each one individually::
 
 **Tempo follows the list**
 
-While a list entry is active (``list_next`` has been called at least once),
-user-initiated BPM changes – button presses, incoming MIDI, or scroll wheel
-on the display – automatically update the stored value for the active slot
-as well.  This is controlled by ``"list_update_on_change"`` in the config:
+While a list entry is active (``list_next`` or ``list_prev`` has been called
+at least once), user-initiated BPM changes – button presses, incoming MIDI,
+or scroll wheel on the display – automatically update the stored value for
+the active slot as well.  This is controlled by ``"list_update_on_change"`` in the config:
 
 - ``True`` *(default)* – the active slot tracks the playing BPM.  Nudge
   freely; the slot stays in sync.
@@ -423,6 +429,10 @@ until that slot is activated.
      - Effect
    * - Double-click the BPM display
      - Append current BPM to the list
+   * - Tab
+     - Advance the list one step (same as ``list_next``)
+   * - Shift+Tab
+     - Step the list back one entry (same as ``list_prev``)
    * - Single-click a pill
      - Jump directly to that tempo and activate it
    * - Middle-click a pill

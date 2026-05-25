@@ -47,7 +47,7 @@ DEFAULT_CONFIG_PATH = os.path.expanduser("~/.config/big-tempo/config.py")
 # ── Validation constants ───────────────────────────────────────────────────────
 VALID_ACTIONS = frozenset({
     "up", "down", "set",
-    "list_append", "list_next", "list_clear",
+    "list_append", "list_next", "list_prev", "list_clear",
     "osc_only", "midi_only",
 })
 

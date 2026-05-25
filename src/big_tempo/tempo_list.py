@@ -75,6 +75,35 @@ class TempoList:
         self._tempos[self._index] = float(bpm)
         return True
 
+    def prev(self) -> float | None:
+        """
+        Move the pointer one step backward and return the BPM there.
+
+        Symmetric with ``next()``:
+
+        * Empty list → returns ``None``, pointer unchanged.
+        * Pointer at ``-1`` (never advanced) → jumps to the **last** entry,
+          mirroring how ``next()`` from ``-1`` jumps to the first.
+        * Pointer at ``0`` → wraps to the last entry.
+        * Otherwise → decrements by one.
+
+        >>> tl = TempoList()
+        >>> for t in (100.0, 120.0, 140.0): tl.append(t)
+        >>> tl.prev()    # -1 → last
+        140.0
+        >>> tl.prev()    # 2 → 1
+        120.0
+        >>> tl.next()    # 1 → 2
+        140.0
+        """
+        if not self._tempos:
+            return None
+        if self._index == -1:
+            self._index = len(self._tempos) - 1
+        else:
+            self._index = (self._index - 1) % len(self._tempos)
+        return self._tempos[self._index]
+
     def next(self) -> float | None:
         """
         Advance the pointer by one step (wrapping cyclically) and return the

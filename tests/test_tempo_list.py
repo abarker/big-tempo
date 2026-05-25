@@ -520,3 +520,64 @@ class TestSetAt:
         tl.append(100.0); tl.append(120.0)
         tl.set_at(0, 105.0)
         assert tl.next() == 105.0
+
+
+# ── prev() ─────────────────────────────────────────────────────────────────────
+
+class TestPrev:
+    def test_empty_returns_none(self):
+        assert TempoList().prev() is None
+
+    def test_pointer_unchanged_on_empty(self):
+        tl = TempoList()
+        tl.prev()
+        assert tl.index == -1
+
+    def test_from_inactive_goes_to_last(self):
+        tl = TempoList()
+        for t in (100.0, 120.0, 140.0): tl.append(t)
+        assert tl.prev() == 140.0
+        assert tl.index  == 2
+
+    def test_from_first_wraps_to_last(self):
+        tl = TempoList()
+        for t in (100.0, 120.0, 140.0): tl.append(t)
+        tl.goto(0)
+        assert tl.prev() == 140.0
+        assert tl.index  == 2
+
+    def test_decrements_normally(self):
+        tl = TempoList()
+        for t in (100.0, 120.0, 140.0): tl.append(t)
+        tl.goto(2)
+        assert tl.prev() == 120.0
+        assert tl.index  == 1
+
+    def test_single_entry_stays_put(self):
+        tl = TempoList()
+        tl.append(120.0)
+        assert tl.prev() == 120.0
+        assert tl.prev() == 120.0   # wraps back to itself
+
+    def test_prev_then_next_returns_to_start(self):
+        tl = TempoList()
+        for t in (100.0, 120.0, 140.0): tl.append(t)
+        tl.goto(1)
+        tl.prev()   # → 0
+        tl.next()   # → 1
+        assert tl.current == 120.0
+
+    def test_full_backward_cycle(self):
+        tl = TempoList()
+        for t in (100.0, 120.0, 140.0): tl.append(t)
+        results = [tl.prev() for _ in range(4)]
+        assert results == [140.0, 120.0, 100.0, 140.0]
+
+    def test_interleaved_next_and_prev(self):
+        tl = TempoList()
+        for t in (100.0, 120.0, 140.0): tl.append(t)
+        tl.next()   # 100
+        tl.next()   # 120
+        tl.prev()   # 100
+        assert tl.current == 100.0
+        assert tl.index   == 0

@@ -252,6 +252,8 @@ class BigTempo:
             self._refresh_list_panel()
         elif action == "list_next":
             self._gui_list_next()
+        elif action == "list_prev":
+            self._gui_list_prev()
         elif action == "list_clear":
             self._tempo_list.clear()
             self._refresh_list_panel()
@@ -321,6 +323,13 @@ class BigTempo:
     def _gui_list_next(self) -> None:
         """Advance the tempo list by one step and apply the new BPM."""
         bpm = self._tempo_list.next()
+        if bpm is not None:
+            self._user_set_bpm(bpm)
+        self._refresh_list_panel()
+
+    def _gui_list_prev(self) -> None:
+        """Step the tempo list back one entry and apply the new BPM."""
+        bpm = self._tempo_list.prev()
         if bpm is not None:
             self._user_set_bpm(bpm)
         self._refresh_list_panel()
@@ -483,8 +492,9 @@ class BigTempo:
         # Route all close paths through _on_close so position is always saved
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
         self.root.bind("<Escape>", lambda _: self._on_close())
-        # Tab advances the tempo list (returns "break" to suppress focus change)
-        self.root.bind("<Tab>", lambda _: self._gui_list_next() or "break")
+        # Tab / Shift+Tab navigate the tempo list
+        self.root.bind("<Tab>",       lambda _: self._gui_list_next() or "break")
+        self.root.bind("<Shift-Tab>", lambda _: self._gui_list_prev() or "break")
 
     # ── Widgets ────────────────────────────────────────────────────────────────
     def _create_widgets(self) -> None:

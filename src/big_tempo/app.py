@@ -78,6 +78,11 @@ class BigTempo:
         self._prev_rolling   = None    # None = first poll; no edge fired yet
         self._last_user_time = 0.0     # monotonic timestamp of last user change
 
+        # ── Render-change tracking (skip canvas work when nothing changed) ──────
+        self._last_display:      str            = ""
+        self._last_clr:          str            = ""
+        self._last_canvas_size:  tuple[int,int] = (0, 0)
+
         # Button hold‑repeat job handle
         self._repeat_job = None
 
@@ -908,32 +913,43 @@ class BigTempo:
                 print(f"JACK query error: {exc}", file=sys.stderr)
 
         # 2. Render ────────────────────────────────────────────────────────────
+        cw, ch  = self.canvas.winfo_width(), self.canvas.winfo_height()
         display = f"{self.current_bpm:.{self.args.precision}f}"
-        self.canvas.itemconfig(self.text, text=display)
-        clr = COLOR_ROLLING if self._rolling else COLOR_IDLE
-        self.canvas.itemconfig(self.box, fill=clr, outline=clr)
+        clr     = COLOR_ROLLING if self._rolling else COLOR_IDLE
 
-        self.root.update_idletasks()
-        cw, ch = self.canvas.winfo_width(), self.canvas.winfo_height()
+        if (display != self._last_display
+                or clr != self._last_clr
+                or (cw, ch) != self._last_canvas_size):
 
-        f_size = self._fit_font(cw - IND_SIZE - IND_GAP, ch, "000.0")
-        self.canvas.itemconfig(self.text, font=(FONT_FAMILY, f_size))
+            self.canvas.itemconfig(self.text, text=display)
+            self.canvas.itemconfig(self.box,  fill=clr, outline=clr)
 
-        f       = tkfont.Font(family=FONT_FAMILY, size=f_size)
-        text_w  = f.measure(display)
-        total_w = IND_SIZE + IND_GAP + text_w
-        sx      = (cw - total_w) // 2
-        my      = ch // 2
-        y_off   = f.metrics("descent") // 2
+            self.root.update_idletasks()
+            # Re-query after idletasks in case a resize was pending
+            cw, ch = self.canvas.winfo_width(), self.canvas.winfo_height()
 
-        self.canvas.coords(
-            self.box,
-            sx, my - IND_SIZE // 2,
-            sx + IND_SIZE, my + IND_SIZE // 2,
-        )
-        self.canvas.coords(
-            self.text,
-            sx + IND_SIZE + IND_GAP, my + y_off,
-        )
+            f_size = self._fit_font(cw - IND_SIZE - IND_GAP, ch, "000.0")
+            self.canvas.itemconfig(self.text, font=(FONT_FAMILY, f_size))
+
+            f       = tkfont.Font(family=FONT_FAMILY, size=f_size)
+            text_w  = f.measure(display)
+            total_w = IND_SIZE + IND_GAP + text_w
+            sx      = (cw - total_w) // 2
+            my      = ch // 2
+            y_off   = f.metrics("descent") // 2
+
+            self.canvas.coords(
+                self.box,
+                sx, my - IND_SIZE // 2,
+                sx + IND_SIZE, my + IND_SIZE // 2,
+            )
+            self.canvas.coords(
+                self.text,
+                sx + IND_SIZE + IND_GAP, my + y_off,
+            )
+
+            self._last_display     = display
+            self._last_clr         = clr
+            self._last_canvas_size = (cw, ch)
 
         self.root.after(self.update_ms, self._update_loop)

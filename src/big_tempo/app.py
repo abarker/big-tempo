@@ -229,7 +229,8 @@ class BigTempo:
                     f"list_update_on_change: slot {self._tempo_list.index} "
                     f"→ {self.current_bpm:.3f}"
                 )
-                self._refresh_list_panel()
+                if not self._fast_update_active_pill(self.current_bpm):
+                    self._refresh_list_panel()
 
     # ── MIDI receive (runs on tkinter main thread) ─────────────────────────────
     def _on_midi_receive(
@@ -631,8 +632,28 @@ class BigTempo:
         # With side="top", top_frame's expand=True would eat all extra space
         # and compress the canvas to zero pixels.
         self._pill_canvas.pack(side="bottom", fill="x")
-        self._panel_visible: bool     = False
+        self._panel_visible: bool          = False
         self._pill_item_to_index: dict[int, int] = {}  # canvas item id → pill index
+        self._active_pill_text_id: int | None    = None  # text item of the active pill
+
+    def _fast_update_active_pill(self, bpm: float) -> bool:
+        """
+        Update only the active pill's label text without a full redraw.
+
+        Called on every rapid BPM change (hold-repeat, JACK adoption) to
+        avoid the expensive ``delete("all")`` + redraw + ``tag_bind`` cycle
+        that ``_refresh_list_panel`` performs.  Returns ``True`` on success;
+        ``False`` if the item no longer exists or the panel is not visible,
+        in which case the caller should fall back to ``_refresh_list_panel``.
+        """
+        if not self._panel_visible or self._active_pill_text_id is None:
+            return False
+        label = f"{bpm:.{self.args.precision}f}"
+        try:
+            self._pill_canvas.itemconfig(self._active_pill_text_id, text=label)
+            return True
+        except Exception:
+            return False   # stale item id; caller will do a full redraw
 
     def _refresh_list_panel(self) -> None:
         """
@@ -647,7 +668,8 @@ class BigTempo:
         idx    = self._tempo_list.index
 
         self._pill_canvas.delete("all")
-        self._pill_item_to_index = {}   # rebuild on every redraw
+        self._pill_item_to_index  = {}    # rebuild on every redraw
+        self._active_pill_text_id = None  # reset; set below for the active pill
 
         if not tempos:
             if self._panel_visible:
@@ -704,6 +726,8 @@ class BigTempo:
             # identify which pill the cursor is over (tag_bind rejects Button-4/5)
             self._pill_item_to_index[rect_id] = i
             self._pill_item_to_index[text_id] = i
+            if active:
+                self._active_pill_text_id = text_id
 
             x = x1 + LIST_PILL_GAP
 
@@ -875,7 +899,8 @@ class BigTempo:
                                         f"{self._tempo_list.index} "
                                         f"→ {self.current_bpm:.3f}"
                                     )
-                                    self._refresh_list_panel()
+                                    if not self._fast_update_active_pill(self.current_bpm):
+                                        self._refresh_list_panel()
                             if quantized:
                                 self._fire_on_quantize()
 

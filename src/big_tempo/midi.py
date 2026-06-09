@@ -45,6 +45,7 @@ Per-receive sends live inside the receive entry as a unified ``"send"`` list::
 """
 
 import sys
+import queue
 import threading
 from typing import Any
 
@@ -65,9 +66,13 @@ class MidiHandler:
     Parameters
     ----------
     cfg        : full application config dict
-    root       : tkinter root widget (used only for ``root.after()``)
+    root       : tkinter root widget (accepted for API compatibility; no longer
+                 used internally – events are queued instead of scheduled via
+                 ``root.after``)
     on_receive : callable(action, amount, raw, send_specs)
                  Called on the tkinter main thread for each matched CC event.
+                 The caller must drain the queue by calling ``drain()`` and
+                 invoking this callback for each returned tuple.
                  action     – ``'up'`` | ``'down'`` | ``'set'`` | ``'list_append'``
                               | ``'list_next'`` | ``'list_clear'``
                               | ``'osc_only'`` | ``'midi_only'``
@@ -79,10 +84,11 @@ class MidiHandler:
 
     def __init__(self, cfg: dict, root, on_receive):
         self.cfg          = cfg
-        self.root         = root
+        self.root         = root   # retained for API compatibility
         self.on_receive   = on_receive
         self._started     = threading.Event()
-        self._warned_keys: set = set()   # tracks one-time config warnings
+        self._warned_keys: set = set()
+        self._queue: queue.SimpleQueue = queue.SimpleQueue()
 
     # ── Public API ──────────────────────────────────────────────────────────────
 
@@ -169,6 +175,22 @@ class MidiHandler:
         else:
             return max(0, min(127, int(token)))
 
+    def drain(self) -> list:
+        """
+        Return all pending MIDI events as a list of
+        ``(action, amount, raw, send_specs)`` tuples and clear the queue.
+
+        Call this from the main thread on every update tick (e.g. at the top
+        of ``_update_loop``) before processing JACK transport state.
+        """
+        events = []
+        while True:
+            try:
+                events.append(self._queue.get_nowait())
+            except queue.Empty:
+                break
+        return events
+
     # ── Receive routing (mididings callback thread) ────────────────────────────
 
     def _handle_ctrl(self, ev) -> None:
@@ -176,8 +198,15 @@ class MidiHandler:
         Called by mididings for every incoming CC event.
 
         Looks up the CC number in ``cfg["receive"]``, extracts the action and
-        unified send list, then marshals everything to the tkinter thread via
-        ``root.after(0, …)``.
+        unified send list, then puts a tuple onto ``_queue`` for the main
+        thread to pick up via ``drain()``.
+
+        **Realtime-safety note**: this method runs in the mididings JACK
+        process callback (a hard-realtime thread).  Using
+        ``queue.SimpleQueue.put_nowait`` – a deque append and semaphore
+        release – avoids Tcl interpreter calls and GIL contention that the
+        previous ``root.after(0, …)`` approach could cause, which could delay
+        the JACK process callback and trigger xruns.
         """
         key     = f"CC{ev.ctrl}"
         receive = self.cfg.get("receive", {})
@@ -192,11 +221,7 @@ class MidiHandler:
             f"CC{ev.ctrl}={ev.value} → action={action!r}"
             f"  amount={amount}  sends={len(send_specs)}"
         )
-        self.root.after(
-            0,
-            lambda a=action, m=amount, r=raw, ss=send_specs:
-                self.on_receive(a, m, r, ss),
-        )
+        self._queue.put_nowait((action, amount, raw, send_specs))
 
     # ── Engine thread ───────────────────────────────────────────────────────────
 

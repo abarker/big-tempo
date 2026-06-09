@@ -53,8 +53,7 @@ def _fake_event(ctrl: int, value: int):
 
 def _make_handler(cfg: dict):
     received = []
-    root = MagicMock()
-    root.after = lambda delay, fn: fn()
+    root = MagicMock()  # accepted for API compat; no longer used for after()
 
     def on_receive(action, amount, raw, send_specs=None):
         received.append({
@@ -64,6 +63,17 @@ def _make_handler(cfg: dict):
 
     handler = MidiHandler(cfg, root, on_receive)
     handler._started.set()
+
+    # In production, _update_loop calls handler.drain() and dispatches each
+    # tuple.  Patch _handle_ctrl here to do the same immediately so existing
+    # tests can call h._handle_ctrl(ev) without knowing about the queue.
+    _orig_handle = handler._handle_ctrl
+    def _handle_and_drain(ev):
+        _orig_handle(ev)
+        for args in handler.drain():
+            handler.on_receive(*args)
+    handler._handle_ctrl = _handle_and_drain
+
     return handler, received
 
 

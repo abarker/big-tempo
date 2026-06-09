@@ -849,7 +849,16 @@ class BigTempo:
 
     # ── Main update loop ───────────────────────────────────────────────────────
     def _update_loop(self) -> None:
-        # 0. Config hot-reload ─────────────────────────────────────────────────
+        # 0. Drain MIDI event queue ────────────────────────────────────────────
+        # The mididings JACK process callback puts events on a SimpleQueue
+        # instead of calling root.after() directly, avoiding Tcl calls and
+        # GIL contention in the RT thread.  We drain here, before the JACK
+        # transport query, so that user MIDI changes to current_bpm and
+        # _last_user_time are visible when the JACK adoption logic runs.
+        for action, amount, raw, send_specs in self.midi.drain():
+            self._on_midi_receive(action, amount, raw, send_specs)
+
+        # 1. Config hot-reload ─────────────────────────────────────────────────
         self._check_config_reload()
 
         # 1. Poll JACK ─────────────────────────────────────────────────────────

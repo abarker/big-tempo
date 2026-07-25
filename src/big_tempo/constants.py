@@ -18,10 +18,10 @@ DEFAULT_FG        = "black"
 DEFAULT_PRECISION = 1
 
 # ── JACK transport indicator ───────────────────────────────────────────────────
-IND_SIZE      = 30     # square side length (px)
+IND_SIZE      = 50     # square side length (px)
 IND_GAP       = 15     # gap between indicator and tempo text (px)
 COLOR_ROLLING = "#C00000"
-COLOR_IDLE    = "gray"
+COLOR_IDLE    = "#909090"
 
 # ── Undecorated‑window border ─────────────────────────────────────────────────
 BORDER_COLOR = "black"

@@ -254,8 +254,7 @@ class BigTempo:
             from big_tempo.config import midi_value_to_bpm
             self._user_set_bpm(midi_value_to_bpm(raw, self.cfg))
         elif action == "list_append":
-            self._tempo_list.append(self.current_bpm)
-            self._refresh_list_panel()
+            self._gui_list_append()
         elif action == "list_next":
             self._gui_list_next()
         elif action == "list_prev":
@@ -341,8 +340,21 @@ class BigTempo:
         self._refresh_list_panel()
 
     def _gui_list_append(self) -> None:
-        """Double-click on the main canvas: save current BPM to the list."""
-        self._tempo_list.append(self.current_bpm)
+        """
+        Save the current BPM to the list (MIDI ``list_append`` or double-click).
+
+        When ``activate_on_append`` is set in the config, the newly-added
+        entry becomes the active tempo immediately, so subsequent user changes
+        edit it in place (subject to ``list_update_on_change``) and ``list_next``
+        advances from it.  The current playing BPM is unchanged either way –
+        the appended value already equals ``current_bpm``.
+        """
+        activate = self.cfg.get("activate_on_append", False)
+        index    = self._tempo_list.append(self.current_bpm, activate=activate)
+        self._dbg(
+            f"list_append: slot {index} = {self.current_bpm:.3f}"
+            f"{'  (activated)' if activate else ''}"
+        )
         self._refresh_list_panel()
 
     def _gui_pill_select(self, index: int) -> None:

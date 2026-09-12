@@ -201,12 +201,27 @@ class MidiHandler:
         unified send list, then puts a tuple onto ``_queue`` for the main
         thread to pick up via ``drain()``.
 
-        **Realtime-safety note**: this method runs in the mididings JACK
-        process callback (a hard-realtime thread).  Using
-        ``queue.SimpleQueue.put_nowait`` – a deque append and semaphore
-        release – avoids Tcl interpreter calls and GIL contention that the
-        previous ``root.after(0, …)`` approach could cause, which could delay
-        the JACK process callback and trigger xruns.
+        **Threading note**: this method does *not* run in the JACK process
+        callback.  ``_run()`` configures ``backend="jack"``, not ``"jack-rt"``,
+        and the patch uses ``Call()``, which mididings dispatches
+        asynchronously: the C++ side pushes the event onto a lock-free
+        ringbuffer that a plain ``boost::thread`` (``PythonCaller::
+        async_thread``, no realtime scheduling attributes) drains.  On
+        overflow that ringbuffer drops events rather than blocking, so
+        nothing here can exert back-pressure on the RT path.
+
+        Consequence: the ``_dbg`` call below is *not* an xrun hazard, and this
+        method is not on a hard-realtime deadline.  It does, however, hold the
+        GIL for its whole duration, so a slow write here stalls the Tk main
+        loop and OSC sends -- latency, not xruns.
+
+        ``queue.SimpleQueue.put_nowait`` is still the right handoff: it keeps
+        Tcl interpreter calls off this thread, which the previous
+        ``root.after(0, …)`` approach did not.
+
+        (Contrast ``midi_event_remapper``, which start.py launches with
+        ``--jack-rt`` and whose stdout is deliberately block-buffered for
+        exactly the reason wrongly attributed here.)
         """
         key     = f"CC{ev.ctrl}"
         receive = self.cfg.get("receive", {})

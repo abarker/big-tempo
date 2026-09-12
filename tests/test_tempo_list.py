@@ -581,3 +581,56 @@ class TestPrev:
         tl.prev()   # 100
         assert tl.current == 100.0
         assert tl.index   == 0
+
+
+# ── append(activate=...) ───────────────────────────────────────────────────────
+
+class TestAppendActivate:
+    def test_append_returns_index(self):
+        tl = TempoList()
+        assert tl.append(100.0) == 0
+        assert tl.append(120.0) == 1
+        assert tl.append(140.0) == 2
+
+    def test_append_default_does_not_activate(self):
+        tl = TempoList()
+        tl.append(100.0)
+        tl.append(120.0)
+        assert tl.index == -1          # pointer still before first entry
+        assert tl.current is None
+
+    def test_append_activate_sets_pointer(self):
+        tl = TempoList()
+        idx = tl.append(120.0, activate=True)
+        assert tl.index == idx == 0
+        assert tl.current == 120.0
+
+    def test_append_activate_second_entry(self):
+        tl = TempoList()
+        tl.append(100.0)               # inactive
+        tl.append(120.0, activate=True)
+        assert tl.index == 1
+        assert tl.current == 120.0
+
+    def test_append_activate_moves_from_existing_active(self):
+        tl = TempoList()
+        tl.append(100.0)
+        tl.next()                      # activate index 0
+        assert tl.index == 0
+        tl.append(140.0, activate=True)  # list is now [100.0, 140.0]
+        assert tl.index == 1
+        assert tl.current == 140.0
+
+    def test_append_without_activate_preserves_active(self):
+        tl = TempoList()
+        tl.append(100.0)
+        tl.next()                      # activate index 0
+        tl.append(140.0)               # no activate
+        assert tl.index == 0           # unchanged
+        assert tl.current == 100.0
+
+    def test_next_after_activate_append_advances_correctly(self):
+        tl = TempoList()
+        tl.append(100.0)
+        tl.append(120.0, activate=True)  # active at index 1
+        assert tl.next() == 100.0        # wraps to 0

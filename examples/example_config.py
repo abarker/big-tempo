@@ -53,6 +53,13 @@
     # nudging a saved tempo on the fly.  Set to False to keep saved tempos fixed.
     "list_update_on_change":  True,
 
+    # ── Tempo list: activate a slot as soon as it is added ────────────────────
+    # When True, saving a tempo (list_append or double-click) immediately makes
+    # the new entry the active one, so further BPM nudges edit it in place and
+    # list_next advances from it.  When False (default), appended tempos are
+    # saved but the pointer stays where it was until you switch to the list.
+    "activate_on_append":     False,
+
     # ── Incoming MIDI CC mappings ──────────────────────────────────────────────
     # Key format: "CC<number>"  (CC number 0–127)
     #

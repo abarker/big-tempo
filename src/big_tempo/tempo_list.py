@@ -40,17 +40,33 @@ class TempoList:
         self._index:  int         = -1   # -1 means "before the first entry"
 
     # ── Mutations ──────────────────────────────────────────────────────────────
-    def append(self, bpm: float) -> None:
+    def append(self, bpm: float, activate: bool = False) -> int:
         """
-        Add *bpm* to the end of the list.
+        Add *bpm* to the end of the list and return its index.
 
-        The current position is not changed; the next call to ``next()`` will
-        still advance from wherever the pointer currently sits.
+        By default the current position is not changed; the next call to
+        ``next()`` will still advance from wherever the pointer currently sits.
+
+        When *activate* is ``True`` the pointer is moved to the newly-added
+        entry, making it the active tempo immediately.
 
         >>> tl = TempoList(); tl.append(120.0); list(tl) == [120.0]
         True
+        >>> tl = TempoList()
+        >>> tl.append(100.0)
+        0
+        >>> tl.append(120.0, activate=True)
+        1
+        >>> tl.index
+        1
+        >>> tl.current
+        120.0
         """
         self._tempos.append(float(bpm))
+        new_index = len(self._tempos) - 1
+        if activate:
+            self._index = new_index
+        return new_index
 
     def replace_current(self, bpm: float) -> bool:
         """

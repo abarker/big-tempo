@@ -93,18 +93,19 @@
         "CC26": {"action": "list_clear"},
 
         # Trigger Hydrogen PLAY via OSC – no BPM change
-        # "CC26": {"action": "osc_only",
-        #          "send": [{"send": "OSC", "host": "127.0.0.1", "port": 9000,
-        #                    "address": "/Hydrogen/PLAY", "args": []}]},
+        "CC27": {"action": "osc_only",
+                 "send": [{"send": "OSC", "host": "127.0.0.1", "port": 9000,
+                           "address": "/Hydrogen/PLAY", "args": []}]},
 
         # Fire a fixed CC value (e.g. to trigger a DAW mute) – no BPM change
-        # "CC27": {"action": "midi_only",
-        #          "send": [{"send": "MIDI", "cc": 50, "channel": 2, "value": 127}]},
+        "CC28": {"action": "midi_only",
+                 "send": [{"send": "MIDI", "cc": 50, "channel": 2, "value": 127}]},
 
-        # Up press that also logs BPM + raw value over OSC
-        # "CC20": {"action": "up", "amount": 1.0,
-        #          "send": [{"send": "OSC", "host": "127.0.0.1", "port": 9000,
-        #                    "address": "/log/bpm_up", "args": ["bpm", "raw"]}]},
+        # A second "up" press (on its own CC) that also logs BPM + raw
+        # value over OSC, showing a "send" list attached to a BPM action
+        "CC29": {"action": "up", "amount": 1.0,
+                 "send": [{"send": "OSC", "host": "127.0.0.1", "port": 9000,
+                           "address": "/log/bpm_up", "args": ["bpm", "raw"]}]},
     },
 
     # ── Unified outgoing sends ─────────────────────────────────────────────────
@@ -139,44 +140,38 @@
     #   transport_toggle – either transport transition
     "send": {
         # ── on_change: push new tempo to Hydrogen on every user change ─────────
+        # Also shows fan-out (a second OSC target) and mixing MIDI with OSC
+        # on the same trigger.
         "on_change": [
             {"send": "OSC", "host": "127.0.0.1", "port": 9000,
              "address": "/Hydrogen/BPM", "args": ["bpm"]},
-
-            # Also send as MIDI CC (uncomment if needed):
-            # {"send": "MIDI", "cc": 30, "channel": 1, "value": "bpm"},
+            {"send": "OSC", "host": "10.0.0.5",  "port": 7400,
+             "address": "/stage/bpm",    "args": ["bpm"]},
+            {"send": "MIDI", "cc": 30, "channel": 1, "value": "bpm"},
         ],
 
         # ── on_quantize: push snapped tempo back to Hydrogen ──────────────────
         # Fires when quantize_jack corrects a JACK-adopted tempo.  Unlike
         # on_change this does NOT fire for user-initiated changes.
-        # "on_quantize": [
-        #     {"send": "OSC", "host": "127.0.0.1", "port": 9000,
-        #      "address": "/Hydrogen/BPM", "args": ["bpm"]},
-        # ],
+        "on_quantize": [
+            {"send": "OSC", "host": "127.0.0.1", "port": 9000,
+             "address": "/Hydrogen/BPM", "args": ["bpm"]},
+        ],
 
         # ── JACK transport events ─────────────────────────────────────────────
-        # "transport_start": [
-        #     {"send": "OSC",  "host": "127.0.0.1", "port": 9000,
-        #      "address": "/Hydrogen/PLAY", "args": []},
-        #     {"send": "MIDI", "cc": 32, "channel": 1, "value": 127},
-        # ],
-        # "transport_stop": [
-        #     {"send": "OSC",  "host": "127.0.0.1", "port": 9000,
-        #      "address": "/Hydrogen/PAUSE", "args": []},
-        #     {"send": "MIDI", "cc": 32, "channel": 1, "value": 0},
-        # ],
-        # "transport_toggle": [
-        #     # "rolling" token → 1 on start, 0 on stop
-        #     {"send": "MIDI", "cc": 33, "channel": 1, "value": "rolling"},
-        # ],
-
-        # ── Fan-out example: two OSC targets on one trigger ───────────────────
-        # "on_change": [
-        #     {"send": "OSC", "host": "127.0.0.1", "port": 9000,
-        #      "address": "/Hydrogen/BPM", "args": ["bpm"]},
-        #     {"send": "OSC", "host": "10.0.0.5",  "port": 7400,
-        #      "address": "/stage/bpm",    "args": ["bpm"]},
-        # ],
+        "transport_start": [
+            {"send": "OSC",  "host": "127.0.0.1", "port": 9000,
+             "address": "/Hydrogen/PLAY", "args": []},
+            {"send": "MIDI", "cc": 32, "channel": 1, "value": 127},
+        ],
+        "transport_stop": [
+            {"send": "OSC",  "host": "127.0.0.1", "port": 9000,
+             "address": "/Hydrogen/PAUSE", "args": []},
+            {"send": "MIDI", "cc": 32, "channel": 1, "value": 0},
+        ],
+        "transport_toggle": [
+            # "rolling" token → 1 on start, 0 on stop
+            {"send": "MIDI", "cc": 33, "channel": 1, "value": "rolling"},
+        ],
     },
 }

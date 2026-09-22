@@ -1,11 +1,13 @@
 big-tempo
 =========
 
-A minimalist JACK tempo display, meant for controlling and following tempo
-during live performances.  The BPM readout auto-scales to fill the window,
-so it stays readable from across a stage or a room, and it can be driven by
+A large JACK tempo display, meant for controlling and following tempo
+during live performances.  The BPM readout auto-scales to fill the chosen window size,
+so it can be read from across a stage or a room.  It can be driven by
 MIDI control via **mididings** or by OSC output via **python-osc** for
-sending tempo commands onward to other software.
+sending tempo commands onward to other software.  It can also push its
+own tempo and transport state out to other software via MIDI and/or OSC
+as those change.
 
 .. figure:: screenshots/big-tempo-plain.png
    :alt: big-tempo showing a plain BPM readout
@@ -30,12 +32,13 @@ Features
 - **mididings MIDI I/O** (JACK MIDI backend)
 
   - Receive CC to increment, decrement, or set BPM
-  - Outgoing MIDI CC on user-initiated changes, with configurable value encoding
 
 - **python-osc OSC output** for absolute tempo commands (recommended for
   Hydrogen, which only supports relative BPM over MIDI)
-- **Unified send lists** – each trigger maps to a list of MIDI and/or OSC
-  action dicts, so you can fan out to multiple destinations in one config line
+- **Outgoing MIDI/OSC triggers** – fires a configurable list of MIDI and/or
+  OSC actions on five events: every tempo change, a followed tempo being
+  quantized, and JACK transport start / stop / either transition; fan out
+  to multiple destinations from a single trigger
 - **Tempo list** – save BPM snapshots during soundcheck and cycle forward or
   backward through them live (``list_next`` / ``list_prev``); also fully
   controllable from the mouse and keyboard (double-click to append, Tab /

@@ -195,11 +195,13 @@ class MidiHandler:
 
     def _handle_ctrl(self, ev) -> None:
         """
-        Called by mididings for every incoming CC event.
+        Called by mididings for every incoming CC event on any channel (the
+        mididings patch filters by event type only, not channel).
 
-        Looks up the CC number in ``cfg["receive"]``, extracts the action and
-        unified send list, then puts a tuple onto ``_queue`` for the main
-        thread to pick up via ``drain()``.
+        Events not on ``cfg["midi"]["channel"]`` are ignored here.  Looks up
+        the CC number in ``cfg["receive"]``, extracts the action and unified
+        send list, then puts a tuple onto ``_queue`` for the main thread to
+        pick up via ``drain()``.
 
         **Threading note**: this method does *not* run in the JACK process
         callback.  ``_run()`` configures ``backend="jack"``, not ``"jack-rt"``,
@@ -223,6 +225,9 @@ class MidiHandler:
         ``--jack-rt`` and whose stdout is deliberately block-buffered for
         exactly the reason wrongly attributed here.)
         """
+        channel = int(self.cfg.get("midi", {}).get("channel", 1))
+        if ev.channel != channel:
+            return
         key     = f"CC{ev.ctrl}"
         receive = self.cfg.get("receive", {})
         if key not in receive:

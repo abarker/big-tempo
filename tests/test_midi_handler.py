@@ -46,8 +46,8 @@ from big_tempo.midi import MidiHandler
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
-def _fake_event(ctrl: int, value: int):
-    ev = MagicMock(); ev.ctrl = ctrl; ev.value = value
+def _fake_event(ctrl: int, value: int, channel: int = 1):
+    ev = MagicMock(); ev.ctrl = ctrl; ev.value = value; ev.channel = channel
     return ev
 
 
@@ -119,6 +119,17 @@ class TestHandleCtrl:
         h, received = _make_handler(CFG_BASE)
         h._handle_ctrl(_fake_event(99, 64))
         assert received == []
+
+    def test_wrong_channel_ignored(self):
+        h, received = _make_handler(CFG_BASE)  # midi.channel == 1
+        h._handle_ctrl(_fake_event(20, 64, channel=2))
+        assert received == []
+
+    def test_configured_channel_dispatched(self):
+        cfg = {**CFG_BASE, "midi": {"client_name": "test", "channel": 3}}
+        h, received = _make_handler(cfg)
+        h._handle_ctrl(_fake_event(20, 64, channel=3))
+        assert received[0]["action"] == "up"
 
     def test_send_specs_forwarded(self):
         specs = [

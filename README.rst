@@ -1,15 +1,24 @@
 big-tempo
 =========
 
-A minimalist JACK tempo display with MIDI control via **mididings** and OSC
-output via **python-osc**.
+A minimalist JACK tempo display, meant for controlling and following tempo
+during live performances.  The BPM readout auto-scales to fill the window,
+so it stays readable from across a stage or a room, and it can be driven by
+MIDI control via **mididings** or by OSC output via **python-osc** for
+sending tempo commands onward to other software.
 
-.. code-block:: text
+.. figure:: screenshots/big-tempo-plain.png
+   :alt: big-tempo showing a plain BPM readout
 
-    ┌──────────────────────────────────┬──────────┐
-    │  ●  120.0                        │    ▲     │
-    │                                  │    ▼     │
-    └──────────────────────────────────┴──────────┘
+   The default view: an auto-scaling BPM readout, the JACK transport
+   indicator on the left, and the increment/decrement buttons on the right.
+
+.. figure:: screenshots/big-tempo-tempo-list.png
+   :alt: big-tempo with the tempo list panel open, showing four saved BPM
+         values as pills below the readout
+
+   With the tempo list panel open: BPM values saved during soundcheck show
+   up as pills that can be stepped through live.
 
 
 Features
@@ -34,8 +43,10 @@ Features
   wheel to nudge BPM)
 - Per-receive send lists – any incoming CC can fire extra MIDI and OSC
   messages independently of its BPM action
-- Adopts JACK tempo changes from an external master (e.g. Hydrogen)
-  without firing outgoing MIDI or OSC
+- Follows tempo changes broadcast by an external JACK transport master
+  (e.g. Hydrogen); doing so fires no outgoing MIDI or OSC on its own, but if
+  ``quantize_jack`` snaps the value, the separate ``on_quantize`` trigger
+  fires
 
 
 Requirements
@@ -58,9 +69,14 @@ Requirements
    * - ``python-osc``
      - Included in ``pip install -e .`` (pure Python, no C extensions)
 
-``jack`` and ``mididings`` are **optional** at runtime – the app starts without
-them and degrades gracefully with a one-time warning to stderr.  ``python-osc``
-is a hard dependency and is installed automatically.
+Both ``jack`` and ``mididings`` are **optional** at runtime.  Without the ``jack``
+Python package, the JACK transport indicator and following the external tempo
+are silently disabled (no warning).  Without ``mididings``, MIDI I/O prints
+one warning line and stays off.  If ``mididings`` is installed but no JACK
+server is reachable, the background MIDI thread prints a connection-error
+traceback to stderr on startup instead of a clean warning – this does not
+crash the app.
+``python-osc`` is a hard dependency and is installed automatically.
 
 
 Installation
@@ -85,6 +101,12 @@ For development (adds pytest)::
 
     pip install -e ".[dev]"
 
+Once the system libraries above are installed, ``JACK-Client`` and
+``mididings`` can also be pulled in as packaged extras instead of the manual
+``pip install JACK-Client mididings`` step::
+
+    pip install -e ".[jack,midi]"      # same as pip install -e ".[full]"
+
 .. note::
 
    If ``pip install -e .`` fails with a build error for ``JACK-Client`` or
@@ -101,6 +123,17 @@ Running
     big-tempo --config my_config.py
     big-tempo --no-titlebar --always-on-top
     python -m big_tempo                # also works
+
+Connect a MIDI controller to big-tempo's JACK MIDI ports with ``jack_connect``
+or a patchbay such as QjackCtl.  The client is named ``big_tempo_midi`` by
+default (``midi.client_name`` in the config), with input port ``in`` and
+output port ``out``::
+
+    jack_connect "your-controller:MIDI Out" "big_tempo_midi:in"
+    jack_connect "big_tempo_midi:out" "your-target:MIDI In"
+
+In ``--no-titlebar`` mode, right-click anywhere on the window for a menu
+with **Quit** and **Cancel**, since that mode has no title-bar close button.
 
 All CLI options::
 
@@ -156,8 +189,10 @@ A timestamped message is printed to stderr on each reload::
 **What takes effect immediately:**
 
 - All ``receive`` and ``send`` mappings
+- ``midi.channel``
 - ``min_bpm``, ``max_bpm``, ``quantize``, ``quantize_jack``
 - ``buttons`` timing (increment, repeat delay/rate)
+- ``list_update_on_change``, ``activate_on_append``
 - ``debug`` flag
 - OSC targets (the send pool is rebuilt fresh on each reload)
 
@@ -177,6 +212,13 @@ Top-level structure::
         "receive": { ... },   # incoming CC → BPM action + optional sends
         "send":    { ... },   # trigger → list of MIDI / OSC action dicts
     }
+
+.. note::
+
+   ``midi.channel`` filters incoming CC events: only events on that channel
+   are matched against ``receive`` (default 1).  Outgoing sends are
+   unaffected – each still takes its own explicit ``"channel"`` per action
+   (see below).
 
 
 Receive actions
@@ -253,8 +295,8 @@ reused per unique ``(host, port)`` pair.
    * - ``on_change``
      - Every user-initiated BPM change (buttons, incoming MIDI, ``list_next``)
    * - ``on_quantize``
-     - When ``quantize_jack`` snaps a JACK-adopted tempo to the grid and the
-       snapped value differs from the raw value.  Use this to push the
+     - When ``quantize_jack`` snaps a tempo followed from JACK to the grid
+       and the snapped value differs from the raw value.  Use this to push the
        corrected tempo back to Hydrogen without also re-sending on every user
        button press.
    * - ``transport_start``
@@ -400,6 +442,16 @@ slots and then adjust each one individually::
     # Or: stay on any slot and scroll the wheel over its pill to adjust it
     #     without activating it first
 
+**Whether appending activates the slot**
+
+By default, ``list_append`` (or double-click) adds the new entry without
+moving the pointer – this is why Workflow 2 above needs a separate
+``list_next`` to make slot 1 active after pre-loading.  Set
+``"activate_on_append": True`` in the config to make each newly appended
+tempo active immediately, so further BPM nudges edit it in place (subject to
+``list_update_on_change`` below) and ``list_next`` advances from it rather
+than from wherever the pointer previously sat.
+
 **Tempo follows the list**
 
 While a list entry is active (``list_next`` or ``list_prev`` has been called
@@ -507,5 +559,8 @@ Package layout
     │   └── test_tempo_list.py    TempoList cyclic logic
     ├── examples/
     │   └── example_config.py     annotated starter config
+    ├── screenshots/
+    │   ├── big-tempo-plain.png
+    │   └── big-tempo-tempo-list.png
     ├── pyproject.toml
     └── README.rst

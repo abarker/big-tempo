@@ -468,7 +468,6 @@ class BigTempo:
 
         Bound to:
         - WM delete-window protocol (title-bar × button)
-        - Escape key
         - Context-menu Quit (no-titlebar mode)
         - SIGINT / SIGTERM (via ``__main__``)
         """
@@ -509,7 +508,6 @@ class BigTempo:
             self.root.attributes("-topmost", True)
         # Route all close paths through _on_close so position is always saved
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
-        self.root.bind("<Escape>", lambda _: self._on_close())
         # Tab / Shift+Tab navigate the tempo list
         self.root.bind("<Tab>",       lambda _: self._gui_list_next() or "break")
         self.root.bind("<Shift-Tab>", lambda _: self._gui_list_prev() or "break")

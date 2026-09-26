@@ -1,14 +1,14 @@
 big-tempo
 =========
 
-A large JACK tempo display for controlling and following tempo during
-live performance.  The BPM readout scales to fill the window, so it can be
-read from across a stage or a room.  The tempo can be changed with the
-on-screen buttons, the mouse, or MIDI control changes (via **mididings**),
-and each change can be sent on to other software -- a drum machine such as
-Hydrogen, for example -- as MIDI or OSC (via **python-osc**).  It also
-follows tempo changes from a JACK transport master, and can send MIDI or
-OSC when the transport starts or stops.
+A large JACK tempo display for controlling and following tempo during live
+performance. The BPM readout scales to fill its window at whatever size you
+set, so it can be read from across a stage or a room. The tempo can be
+changed with the on-screen buttons, the mouse, or MIDI control changes (via
+**mididings**), and each change can be sent on to other software -- a drum
+machine such as Hydrogen, for example -- as MIDI or OSC (via
+**python-osc**). It also follows tempo changes from a JACK transport master,
+and can send MIDI or OSC when the transport starts or stops.
 
 .. figure:: screenshots/big-tempo-plain.png
    :alt: big-tempo showing a plain BPM readout
@@ -39,7 +39,8 @@ Features
 - **Outgoing MIDI/OSC triggers** – fires a configurable list of MIDI and/or
   OSC actions on five events: every tempo change you make, a tempo followed
   from JACK being quantized, and JACK transport start / stop / either
-  transition; one trigger can fan out to several destinations
+  transition; each trigger can send to several destinations at once (for
+  example, the same tempo to Hydrogen and to a second program)
 - **Tempo list** – save BPM snapshots during soundcheck and cycle forward or
   backward through them live (``list_next`` / ``list_prev``); also fully
   controllable from the mouse and keyboard (double-click to append, Tab /
@@ -455,7 +456,7 @@ reused for each ``(host, port)`` pair.
         ],
     },
 
-**Example – fan out to two OSC destinations:**
+**Example – send the tempo to two OSC destinations:**
 
 .. code-block:: python
 

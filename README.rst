@@ -66,9 +66,10 @@ Requirements
    * - tkinter
      - Usually bundled with Python; ``python3-tk`` on Debian/Ubuntu
    * - ``JACK-Client``
-     - ``pip install JACK-Client`` or distro package ``python3-jack``
+     - From PyPI, via the ``jack`` or ``full`` extra (see Installation)
    * - ``mididings``
-     - ``pip install mididings`` or distro package ``python3-mididings``
+     - The maintained version from PyPI, via the ``midi`` or ``full``
+       extra; compiled on install (see Installation)
    * - ``python-osc``
      - Included in ``pip install -e .`` (pure Python, no C extensions)
 
@@ -81,40 +82,58 @@ traceback to stderr on startup instead of a clean warning – this does not
 crash the app.
 ``python-osc`` is a hard dependency and is installed automatically.
 
+**Platform.**  Developed and tested on Ubuntu 24.04; other Linux
+distributions should work the same way, and a running JACK server is
+required.  The community-maintained ``mididings`` fork these projects
+depend on (https://github.com/mididings/mididings) also lists macOS as
+supported, although that has not currently been tested here; mididings
+does not support Windows.
+
 
 Installation
 ------------
 
-``JACK-Client`` and ``mididings`` link against C libraries (``libjack`` and
-ALSA) that pip cannot build automatically.  Install the system libraries and
-their Python bindings **before** running ``pip install -e .``::
+The package is not on PyPI.  Clone the repository first::
 
-    # Debian / Ubuntu – recommended path
-    sudo apt install python3-jack python3-mididings python3-tk
+    git clone https://github.com/abarker/big-tempo.git
+    cd big-tempo
 
-    # Alternative: install C libs via apt, then Python wrappers via pip
-    sudo apt install libjack-jackd2-dev python3-tk
-    pip install JACK-Client mididings
+Installing into a virtual environment is recommended.  Create one inside
+the clone, or wherever you prefer, then activate it::
 
-Then install the package (``python-osc`` is pulled in automatically)::
+    python3 -m venv .venv
+    source .venv/bin/activate
 
-    pip install -e .
+``mididings`` is compiled when pip installs it, so first install the
+system libraries it builds against, and tkinter::
+
+    # Debian / Ubuntu
+    sudo apt install build-essential pkg-config python3-dev python3-tk \
+        libasound2-dev libjack-jackd2-dev \
+        libboost-python-dev libboost-thread-dev libglib2.0-dev
+
+The ``mididings`` that pip installs is the maintained community version
+from PyPI.  Don't use a distribution package instead: Ubuntu 24.04 has
+none, and older ones, where they exist, are the original, unmaintained
+release.
+
+Then install the package with its optional extras, which pull in
+``JACK-Client`` and ``mididings`` from PyPI (``python-osc`` comes in
+automatically)::
+
+    pip install -e ".[full]"           # same as pip install -e ".[jack,midi]"
+
+Without the extras (``pip install -e .``), the JACK transport indicator,
+tempo following and MIDI I/O are left out, as described above.
 
 For development (adds pytest)::
 
-    pip install -e ".[dev]"
-
-Once the system libraries above are installed, ``JACK-Client`` and
-``mididings`` can also be pulled in as packaged extras instead of the manual
-``pip install JACK-Client mididings`` step::
-
-    pip install -e ".[jack,midi]"      # same as pip install -e ".[full]"
+    pip install -e ".[full,dev]"
 
 .. note::
 
-   If ``pip install -e .`` fails with a build error for ``JACK-Client`` or
-   ``mididings``, install those two packages manually first (see above) and
-   then re-run ``pip install -e .``.
+   If the ``mididings`` build fails, check that the system libraries above
+   are installed, then re-run the ``pip install`` command.
 
 
 Running
@@ -126,6 +145,14 @@ Running
     big-tempo --config my_config.py
     big-tempo --no-titlebar --always-on-top
     python -m big_tempo                # also works
+
+If you installed inside a venv, ``pip install -e .`` bakes that venv's
+own interpreter into the installed ``big-tempo`` command as an absolute
+shebang, so it runs without the venv activated afterward -- it only needs
+a way for the shell to find it, e.g. its full path
+(``/path/to/venv/bin/big-tempo``) or that venv's ``bin/`` on ``PATH``.
+``pipx install`` works the same way and adds itself to ``PATH``
+automatically.
 
 Connect a MIDI controller to big-tempo's JACK MIDI ports with ``jack_connect``
 or a patchbay such as QjackCtl.  The client is named ``big_tempo_midi`` by

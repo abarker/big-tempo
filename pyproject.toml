@@ -22,8 +22,10 @@ dependencies = [
 # ── Optional dependencies ──────────────────────────────────────────────────────
 # Install the C libraries first, then use one of these extras:
 #
-#   sudo apt install python3-jack python3-mididings   # Debian / Ubuntu
-#   pip install -e ".[jack,midi]"                     # then pip
+#   sudo apt install build-essential pkg-config python3-dev \
+#       libasound2-dev libjack-jackd2-dev \
+#       libboost-python-dev libboost-thread-dev libglib2.0-dev   # Debian / Ubuntu
+#   pip install -e ".[full]"                           # then pip (mididings from PyPI)
 #
 [project.optional-dependencies]
 jack = ["JACK-Client>=0.5"]

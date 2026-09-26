@@ -1,13 +1,14 @@
 big-tempo
 =========
 
-A large JACK tempo display, meant for controlling and following tempo
-during live performances.  The BPM readout auto-scales to fill the chosen window size,
-so it can be read from across a stage or a room.  It can be driven by
-MIDI control via **mididings** or by OSC output via **python-osc** for
-sending tempo commands onward to other software.  It can also push its
-own tempo and transport state out to other software via MIDI and/or OSC
-as those change.
+A large JACK tempo display for controlling and following tempo during
+live performance.  The BPM readout scales to fill the window, so it can be
+read from across a stage or a room.  The tempo can be changed with the
+on-screen buttons, the mouse, or MIDI control changes (via **mididings**),
+and each change can be sent on to other software -- a drum machine such as
+Hydrogen, for example -- as MIDI or OSC (via **python-osc**).  It also
+follows tempo changes from a JACK transport master, and can send MIDI or
+OSC when the transport starts or stops.
 
 .. figure:: screenshots/big-tempo-plain.png
    :alt: big-tempo showing a plain BPM readout
@@ -31,14 +32,14 @@ Features
 - **▲ / ▼ buttons** with configurable hold-to-repeat
 - **mididings MIDI I/O** (JACK MIDI backend)
 
-  - Receive CC to increment, decrement, or set BPM
+  - Receive CCs to raise, lower, or set the BPM, or to work the tempo list
 
 - **python-osc OSC output** for absolute tempo commands (recommended for
   Hydrogen, which only supports relative BPM over MIDI)
 - **Outgoing MIDI/OSC triggers** – fires a configurable list of MIDI and/or
-  OSC actions on five events: every tempo change, a followed tempo being
-  quantized, and JACK transport start / stop / either transition; fan out
-  to multiple destinations from a single trigger
+  OSC actions on five events: every tempo change you make, a tempo followed
+  from JACK being quantized, and JACK transport start / stop / either
+  transition; one trigger can fan out to several destinations
 - **Tempo list** – save BPM snapshots during soundcheck and cycle forward or
   backward through them live (``list_next`` / ``list_prev``); also fully
   controllable from the mouse and keyboard (double-click to append, Tab /
@@ -47,9 +48,12 @@ Features
 - Per-receive send lists – any incoming CC can fire extra MIDI and OSC
   messages independently of its BPM action
 - Follows tempo changes broadcast by an external JACK transport master
-  (e.g. Hydrogen); doing so fires no outgoing MIDI or OSC on its own, but if
-  ``quantize_jack`` snaps the value, the separate ``on_quantize`` trigger
-  fires
+  (e.g. Hydrogen), except for 1.5 s after you change the tempo yourself, so
+  your change is not immediately overridden; following fires no outgoing
+  MIDI or OSC on its own, but if ``quantize_jack`` snaps the value, the
+  separate ``on_quantize`` trigger fires
+- Optional BPM quantization, snapping tempos to a grid such as whole or
+  half BPM
 
 
 Requirements
@@ -73,9 +77,9 @@ Requirements
    * - ``python-osc``
      - Included in ``pip install -e .`` (pure Python, no C extensions)
 
-Both ``jack`` and ``mididings`` are **optional** at runtime.  Without the ``jack``
-Python package, the JACK transport indicator and following the external tempo
-are silently disabled (no warning).  Without ``mididings``, MIDI I/O prints
+Both ``JACK-Client`` (the ``jack`` module) and ``mididings`` are **optional**
+at runtime.  Without ``JACK-Client``, the JACK transport indicator and
+tempo following are silently disabled (no warning).  Without ``mididings``, MIDI I/O prints
 one warning line and stays off.  If ``mididings`` is installed but no JACK
 server is reachable, the background MIDI thread prints a connection-error
 traceback to stderr on startup instead of a clean warning – this does not
@@ -83,8 +87,8 @@ crash the app.
 ``python-osc`` is a hard dependency and is installed automatically.
 
 **Platform.**  Developed and tested on Ubuntu 24.04; other Linux
-distributions should work the same way, and a running JACK server is
-required.  The community-maintained ``mididings`` fork these projects
+distributions should work the same way.  A running JACK server is needed
+for the transport indicator, tempo following and MIDI.  The community-maintained ``mididings`` fork these projects
 depend on (https://github.com/mididings/mididings) also lists macOS as
 supported, although that has not currently been tested here; mididings
 does not support Windows.
@@ -146,13 +150,13 @@ Running
     big-tempo --no-titlebar --always-on-top
     python -m big_tempo                # also works
 
-If you installed inside a venv, ``pip install -e .`` bakes that venv's
-own interpreter into the installed ``big-tempo`` command as an absolute
-shebang, so it runs without the venv activated afterward -- it only needs
-a way for the shell to find it, e.g. its full path
+If you installed inside a venv, pip (with or without ``-e``) writes that
+venv's own interpreter into the installed ``big-tempo`` command as an
+absolute shebang, so it runs without the venv activated afterward -- the
+shell only needs a way to find it, e.g. its full path
 (``/path/to/venv/bin/big-tempo``) or that venv's ``bin/`` on ``PATH``.
-``pipx install`` works the same way and adds itself to ``PATH``
-automatically.
+``pipx install`` works the same way and puts the command on ``PATH`` for
+you.
 
 Connect a MIDI controller to big-tempo's JACK MIDI ports with ``jack_connect``
 or a patchbay such as QjackCtl.  The client is named ``big_tempo_midi`` by
@@ -170,7 +174,11 @@ All CLI options::
     --config PATH         Python dict literal config file
     --width-in FLOAT      Window width in inches
     --height-in FLOAT     Window height in inches
-    --update-ms INT       JACK poll interval in milliseconds
+    --update-ms INT       How often to poll JACK and refresh the display, in
+                          milliseconds (default 100).  Incoming MIDI is
+                          handled on the same tick, so this is also the most
+                          a MIDI command can wait; 20-50 ms cuts that at
+                          negligible CPU cost.
     --font-size INT       Fixed font size in points (overrides auto-fit)
     --precision INT       Decimal places shown in BPM readout
     --bg COLOR            Background colour (default: white)
@@ -199,18 +207,18 @@ in the repository root::
     mkdir -p ~/.config/big-tempo
     cp examples/example_config.py ~/.config/big-tempo/config.py
 
-The loader validates the config on every load and reload.  Problems (unknown
-action names, missing required keys, out-of-range values, legacy key names)
-are printed to stderr as ``Config warning:`` lines.  The config is still
-applied – warnings are informational, not fatal.
+The loader checks the config on every load and reload.  Problems (unknown
+action names, missing required keys, out-of-range values, old key names) are
+printed to stderr as ``Config warning:`` lines.  The config is still
+applied -- the warnings are informational, not fatal.
 
 Hot reload
 ~~~~~~~~~~
 
 The config file is **reloaded automatically while the program is running**.
-Every update tick (default 100 ms) big-tempo checks the file's modification
-time.  If it has changed, the new config is parsed and applied immediately –
-no restart needed.
+On every update tick (``--update-ms``, default 100 ms) big-tempo checks the
+file's modification time; if it has changed, the new config is read and
+applied at once -- no restart needed.
 
 A timestamped message is printed to stderr on each reload::
 
@@ -232,13 +240,18 @@ A timestamped message is printed to stderr on each reload::
   at runtime; a note is printed alongside the reload message if this key
   was changed.
 
-Top-level structure::
+Top-level structure, with the defaults::
 
     {
         "midi":    {"client_name": "big_tempo_midi", "channel": 1},
         "buttons": {"increment": 1.0, "repeat_delay_ms": 400, "repeat_ms": 80},
         "min_bpm": 20.0,
         "max_bpm": 300.0,
+        "quantize":      None,
+        "quantize_jack": False,
+        "list_update_on_change": True,
+        "activate_on_append":    False,
+        "debug":   False,
         "receive": { ... },   # incoming CC → BPM action + optional sends
         "send":    { ... },   # trigger → list of MIDI / OSC action dicts
     }
@@ -247,8 +260,31 @@ Top-level structure::
 
    ``midi.channel`` filters incoming CC events: only events on that channel
    are matched against ``receive`` (default 1).  Outgoing sends are
-   unaffected – each still takes its own explicit ``"channel"`` per action
-   (see below).
+   unaffected -- each takes its own explicit ``"channel"`` (see below).
+
+Other settings
+~~~~~~~~~~~~~~
+
+``min_bpm`` / ``max_bpm``
+    The allowed tempo range.  Every tempo, including one followed from JACK,
+    is kept within it, and the ``set`` action maps CC values onto it.
+
+``quantize``
+    Snap every tempo change you make to the nearest multiple of this step:
+    ``1.0`` for whole BPM, ``0.5`` for half BPM, and so on.  ``None`` or
+    ``0`` turns it off (the default).
+
+``quantize_jack``
+    When ``True``, also snap tempos followed from the JACK transport master
+    to the ``quantize`` grid.  If the snapped value differs from the one
+    received, the ``on_quantize`` trigger fires -- for example to push the
+    corrected tempo back to the drum machine.
+
+``list_update_on_change``, ``activate_on_append``
+    Tempo-list behaviour; see `Tempo list`_.
+
+``debug``
+    Print diagnostic messages to stderr.
 
 
 Receive actions
@@ -263,9 +299,9 @@ Receive actions
    * - Action
      - Effect
    * - ``up``
-     - Add ``amount`` BPM
+     - Add ``amount`` BPM (default 1.0)
    * - ``down``
-     - Subtract ``amount`` BPM
+     - Subtract ``amount`` BPM (default 1.0)
    * - ``set``
      - Proportionally map the incoming CC value (0–127) onto the
        ``min_bpm``–``max_bpm`` range.  CC=0 → ``min_bpm``, CC=127 →
@@ -282,9 +318,10 @@ Receive actions
    * - ``list_clear``
      - Discard all saved tempos and reset the list pointer
    * - ``osc_only``
-     - Fire the entry's ``"send"`` list without changing tempo
+     - Fire the entry's ``"send"`` list -- MIDI and OSC alike -- without
+       changing tempo
    * - ``midi_only``
-     - Fire the entry's ``"send"`` list without changing tempo
+     - The same as ``osc_only``; the two names are interchangeable
 
 Any receive entry may carry a ``"send"`` list to fire extra MIDI and/or OSC
 messages alongside its primary action::
@@ -310,9 +347,9 @@ Unified send lists (``send``)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 ``"send"`` maps trigger names to a **list** of action dicts.  Actions fire in
-list order; MIDI and OSC actions may be freely mixed on the same trigger.  The
-same OSC host/port can appear on multiple triggers – a single UDP socket is
-reused per unique ``(host, port)`` pair.
+list order, and MIDI and OSC actions can be mixed on the same trigger.  The
+same OSC host and port can appear on several triggers; one UDP socket is
+reused for each ``(host, port)`` pair.
 
 **Trigger names:**
 
@@ -323,7 +360,8 @@ reused per unique ``(host, port)`` pair.
    * - Trigger
      - When it fires
    * - ``on_change``
-     - Every user-initiated BPM change (buttons, incoming MIDI, ``list_next``)
+     - Every tempo change you make (buttons, mouse, incoming MIDI, the tempo
+       list) -- not tempos followed from JACK
    * - ``on_quantize``
      - When ``quantize_jack`` snaps a tempo followed from JACK to the grid
        and the snapped value differs from the raw value.  Use this to push the
@@ -357,8 +395,11 @@ reused per unique ``(host, port)`` pair.
    * - ``"value"``
      - yes
      - ``"bpm"`` – current BPM mapped proportionally to 0–127 |br|
-       ``"raw"`` – incoming CC value passed straight through (0–127) |br|
-       ``"rolling"`` – 127 on transport start, 0 on transport stop |br|
+       ``"raw"`` – incoming CC value passed straight through (0–127);
+       only meaningful in a receive entry's ``"send"`` list -- on the
+       triggers above it is 0 |br|
+       ``"rolling"`` – 127 on transport start, 0 on transport stop (0 on
+       the other triggers) |br|
        ``<int 0–127>`` – fixed literal
 
 .. |br| raw:: html
@@ -389,8 +430,9 @@ reused per unique ``(host, port)`` pair.
    * - ``"args"``
      - no
      - List of tokens and/or literals.  Token strings: ``"bpm"`` (float),
-       ``"raw"`` (int), ``"rolling"`` (int).  Any other value is passed
-       through unchanged (int, float, str, bool).
+       ``"raw"`` (int) and ``"rolling"`` (int), with the same meanings as
+       for MIDI.  Any other value is passed through unchanged (int, float,
+       str, bool).
 
 **Example – Hydrogen tempo + transport:**
 
@@ -431,9 +473,9 @@ Tempo list
 ~~~~~~~~~~
 
 The tempo list lets you save BPM snapshots and switch between them during a
-performance.  It operates in two modes: **adding tempos one at a time** as you
-dial them in, or **pre-loading a fixed number of slots** and adjusting each
-one before you start.
+performance.  There are two ways to fill it: **add tempos one at a time** as
+you dial them in, or **pre-load a fixed number of slots** and adjust each one
+before you start.
 
 **Workflow 1 – soundcheck capture**
 
@@ -451,8 +493,8 @@ Dial each song's tempo and append it as you go::
     CC25  →  list_clear
 
 The first ``list_next`` always recalls the first saved tempo; the first
-``list_prev`` recalls the last.  Appending
-during a cycle extends the list without disturbing the current position.
+``list_prev`` recalls the last.  Appending while stepping through the list
+extends it without disturbing the current position.
 
 **Workflow 2 – pre-load and adjust**
 
@@ -484,15 +526,16 @@ than from wherever the pointer previously sat.
 
 **Tempo follows the list**
 
-While a list entry is active (``list_next`` or ``list_prev`` has been called
-at least once), user-initiated BPM changes – button presses, incoming MIDI,
-or scroll wheel on the display – automatically update the stored value for
-the active slot as well.  This is controlled by ``"list_update_on_change"`` in the config:
+While a list entry is active (``list_next`` or ``list_prev`` has been used
+at least once), tempo changes you make -- buttons, incoming MIDI, or the
+scroll wheel over the display -- and tempos followed from JACK also update
+the stored value of the active slot.  ``"list_update_on_change"`` in the
+config controls this:
 
 - ``True`` *(default)* – the active slot tracks the playing BPM.  Nudge
   freely; the slot stays in sync.
-- ``False`` – saved slots are frozen once captured.  User changes still play
-  but do not overwrite the stored value.
+- ``False`` – saved slots are frozen once captured.  Tempo changes still
+  play but do not overwrite the stored value.
 
 **Editing an inactive slot**
 
@@ -526,8 +569,8 @@ until that slot is activated.
    * - Scroll wheel over a pill
      - Nudge that slot's stored BPM without activating it
 
-Pills grow a hand cursor on hover.  When the last entry is removed the pill
-row collapses automatically.
+The pointer turns into a hand over a pill.  When the last entry is removed,
+the pill row closes.
 
 **Pointer behaviour when removing a pill**
 
@@ -541,8 +584,9 @@ row collapses automatically.
 Button hold-repeat
 ~~~~~~~~~~~~~~~~~~
 
-Holding ▲ or ▼ fires one tick immediately, then waits ``repeat_delay_ms``
-before entering a fast repeat loop at ``repeat_ms`` per tick.
+Holding ▲ or ▼ changes the tempo by ``buttons.increment`` at once, then,
+after ``repeat_delay_ms`` (default 400), repeats every ``repeat_ms``
+(default 80) until released.
 
 
 Development
@@ -556,8 +600,8 @@ Development
     # With coverage report
     pytest --cov=big_tempo --cov-report=term-missing
 
-All hardware dependencies (``jack``, ``mididings``, ``python-osc``) are
-stubbed via ``sys.modules`` so the tests run on any machine including
+All external dependencies (``jack``, ``mididings``, ``python-osc``) are
+stubbed via ``sys.modules``, so the tests run on any machine, including
 headless CI environments.
 
 

@@ -89,10 +89,13 @@ crash the app.
 
 **Platform.**  Developed and tested on Ubuntu 24.04; other Linux
 distributions should work the same way.  A running JACK server is needed
-for the transport indicator, tempo following and MIDI.  The community-maintained ``mididings`` fork these projects
-depend on (https://github.com/mididings/mididings) also lists macOS as
-supported, although that has not currently been tested here; mididings
-does not support Windows.
+for the transport indicator, tempo following and MIDI.  MIDI input and
+output use JACK MIDI ports; a controller that appears only as an ALSA
+MIDI device can be bridged into JACK with ``a2jmidid``.  The
+community-maintained ``mididings`` fork this project depends on
+(https://github.com/mididings/mididings) also lists macOS as supported,
+although that has not currently been tested here; mididings does not
+support Windows.
 
 
 Installation

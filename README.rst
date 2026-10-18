@@ -28,7 +28,7 @@ Features
 --------
 
 - Large BPM readout that auto-scales to the window size
-- JACK transport rolling indicator (grey → red)
+- JACK transport rolling indicator (gray → red)
 - **▲ / ▼ buttons** with configurable hold-to-repeat
 - **mididings MIDI I/O** (JACK MIDI backend)
 
@@ -185,8 +185,8 @@ All CLI options::
                           negligible CPU cost.
     --font-size INT       Fixed font size in points (overrides auto-fit)
     --precision INT       Decimal places shown in BPM readout
-    --bg COLOR            Background colour (default: white)
-    --fg COLOR            Foreground colour (default: black)
+    --bg COLOR            Background color (default: white)
+    --fg COLOR            Foreground color (default: black)
     --always-on-top       Keep window above all others
     --no-titlebar         Remove title bar; enables click-drag to move
     --save-pos [FILE]     Save the window position on exit and restore it on
@@ -285,7 +285,7 @@ Other settings
     corrected tempo back to the drum machine.
 
 ``list_update_on_change``, ``activate_on_append``
-    Tempo-list behaviour; see `Tempo list`_.
+    Tempo-list behavior; see `Tempo list`_.
 
 ``debug``
     Print diagnostic messages to stderr.
@@ -576,7 +576,7 @@ until that slot is activated.
 The pointer turns into a hand over a pill.  When the last entry is removed,
 the pill row closes.
 
-**Pointer behaviour when removing a pill**
+**Pointer behavior when removing a pill**
 
 - Removing the **active** entry moves to the next one (wrapping to the first
   if the removed entry was last).

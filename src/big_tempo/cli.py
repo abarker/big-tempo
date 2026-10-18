@@ -105,8 +105,8 @@ def parse_args(argv=None) -> argparse.Namespace:
         default=DEFAULT_BG,
         metavar="COLOR",
         help=(
-            f"Window background colour (default: {DEFAULT_BG!r}). "
-            "Accepts any Tk colour name (e.g. 'black', '#1a1a1a')."
+            f"Window background color (default: {DEFAULT_BG!r}). "
+            "Accepts any Tk color name (e.g. 'black', '#1a1a1a')."
         ),
     )
     p.add_argument(
@@ -114,8 +114,8 @@ def parse_args(argv=None) -> argparse.Namespace:
         default=DEFAULT_FG,
         metavar="COLOR",
         help=(
-            f"Foreground (text and indicator) colour (default: {DEFAULT_FG!r}). "
-            "Accepts any Tk colour name."
+            f"Foreground (text and indicator) color (default: {DEFAULT_FG!r}). "
+            "Accepts any Tk color name."
         ),
     )
     p.add_argument(

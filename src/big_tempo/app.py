@@ -303,7 +303,7 @@ class BigTempo:
         Nudge the stored BPM of pill *index* by one increment step.
 
         If the scrolled pill is the active one the playing tempo follows
-        immediately (matching the reverse behaviour where button/MIDI changes
+        immediately (matching the reverse behavior where button/MIDI changes
         update the active slot).  Inactive pills are edited in-place without
         affecting the playing tempo.
 
@@ -709,7 +709,7 @@ class BigTempo:
 
         # Draw pills left-to-right
         x = LIST_PILL_GAP
-        cy = LIST_PANEL_H // 2          # vertical centre of canvas
+        cy = LIST_PANEL_H // 2          # vertical center of canvas
         pill_h = LIST_PILL_FONT_SIZE + LIST_PILL_PAD_Y * 2 + 4
         y0 = cy - pill_h // 2
         y1 = cy + pill_h // 2
@@ -912,7 +912,7 @@ class BigTempo:
                                     )
                                 adopted = snapped
                             self.current_bpm = self._clamp(adopted)
-                            # Mirror the list_update_on_change behaviour from
+                            # Mirror the list_update_on_change behavior from
                             # _user_set_bpm: keep the active list slot in sync
                             # with JACK-adopted tempos the same way it tracks
                             # user-initiated changes.

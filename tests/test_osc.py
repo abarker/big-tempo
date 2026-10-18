@@ -78,7 +78,7 @@ class TestConstruction:
         _MockSimpleUDPClient.assert_not_called()
 
 
-# ── Pool behaviour ─────────────────────────────────────────────────────────────
+# ── Pool behavior ─────────────────────────────────────────────────────────────
 
 class TestPool:
     def setup_method(self): _reset()

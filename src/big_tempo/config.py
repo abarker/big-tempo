@@ -82,8 +82,8 @@ def validate_config(cfg: dict) -> list[str]:
     * ``min_bpm`` / ``max_bpm`` ordering and type.
     * ``quantize`` is a positive number or ``None``.
     * ``buttons.increment`` is a positive number.
-    * ``receive`` entries: key format, recognised action names.
-    * ``send`` entries: recognised trigger names, list shape, ``"send"``
+    * ``receive`` entries: key format, recognized action names.
+    * ``send`` entries: recognized trigger names, list shape, ``"send"``
       discriminator, required fields for MIDI (cc, channel, value) and OSC
       (host, port, address).
     * Per-receive ``"send"`` lists: same MIDI / OSC field checks.

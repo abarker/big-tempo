@@ -11,7 +11,7 @@ DEFAULT_WIDTH_IN  = WINDOW_SCALE * 5.2   # wider than original to fit button col
 DEFAULT_HEIGHT_IN = WINDOW_SCALE * 1.5
 DEFAULT_UPDATE_MS = 100
 
-# ── Text / colour ──────────────────────────────────────────────────────────────
+# ── Text / color ──────────────────────────────────────────────────────────────
 FONT_FAMILY       = "Helvetica"
 DEFAULT_BG        = "white"
 DEFAULT_FG        = "black"
@@ -35,12 +35,12 @@ SEP_COLOR     = "#cccccc"
 # ── Tempo list panel ─────────────────────────────────────────────────────────
 LIST_PANEL_H        = 44      # total pixel height reserved for the pill row
                                # (14pt font + pady=4 + outer pady=4 each side)
-LIST_PILL_FONT_SIZE = 14      # pt  – legible from a few metres away
+LIST_PILL_FONT_SIZE = 14      # pt  – legible from a few meters away
 LIST_PILL_PAD_X     = 10     # horizontal padding inside each pill (px)
 LIST_PILL_PAD_Y     = 4      # vertical padding inside each pill (px)
 LIST_PILL_GAP       = 8      # gap between pills (px)
 LIST_PILL_BG        = "#2a2a2a"   # inactive pill background (dark)
-LIST_PILL_FG        = "#c8c8c8"   # inactive pill text (light grey)
+LIST_PILL_FG        = "#c8c8c8"   # inactive pill text (light gray)
 LIST_PILL_ACT_BG    = "#1a7a1a"   # active pill background (green)
 LIST_PILL_ACT_FG    = "#ffffff"   # active pill text
 LIST_SEP_COLOR      = "#555555"   # separator line above pill row

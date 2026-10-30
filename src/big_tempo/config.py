@@ -40,6 +40,10 @@ DEFAULT_CFG: dict = {
     "debug": False,
     "quantize":      None,
     "quantize_jack": False,
+    # Tempos loaded into the tempo list at startup, e.g. [92, 104, 120].  The
+    # list starts with no active entry, as after list_append: the first
+    # list_next recalls the first tempo.  Read only at startup.
+    "tempo_list": [],
 }
 
 DEFAULT_CONFIG_PATH = os.path.expanduser("~/.config/big-tempo/config.py")
@@ -82,6 +86,7 @@ def validate_config(cfg: dict) -> list[str]:
     * ``min_bpm`` / ``max_bpm`` ordering and type.
     * ``quantize`` is a positive number or ``None``.
     * ``buttons.increment`` is a positive number.
+    * ``tempo_list`` is a list of numbers inside ``min_bpm`` .. ``max_bpm``.
     * ``receive`` entries: key format, recognized action names.
     * ``send`` entries: recognized trigger names, list shape, ``"send"``
       discriminator, required fields for MIDI (cc, channel, value) and OSC
@@ -124,6 +129,20 @@ def _val_scalars(cfg: dict, out: list) -> None:
             out.append(
                 f"'quantize' must be a positive number or None (got {q!r})"
             )
+
+    tl = cfg.get("tempo_list", [])
+    if not isinstance(tl, (list, tuple)):
+        out.append(f"'tempo_list' must be a list of BPM values (got {tl!r})")
+    else:
+        for i, bpm in enumerate(tl):
+            if isinstance(bpm, bool) or not isinstance(bpm, (int, float)):
+                out.append(f"'tempo_list[{i}]' must be a number (got {bpm!r}); skipped")
+            elif (isinstance(min_bpm, (int, float)) and isinstance(max_bpm, (int, float))
+                  and not float(min_bpm) <= float(bpm) <= float(max_bpm)):
+                out.append(
+                    f"'tempo_list[{i}]' ({bpm}) is outside min_bpm..max_bpm "
+                    f"({min_bpm}..{max_bpm}); it will be clamped"
+                )
 
     buttons = cfg.get("buttons", {})
     if isinstance(buttons, dict):
@@ -400,6 +419,24 @@ def quantize_bpm(bpm: float, cfg: dict) -> float:
     if step <= 0.0:
         return bpm
     return round(bpm / step) * step
+
+
+def initial_tempos(cfg: dict) -> list[float]:
+    """
+    The tempos to load into the tempo list at startup, from ``cfg["tempo_list"]``:
+    each one quantized and clamped as a tempo you set yourself would be.  Entries
+    that are not numbers are skipped (``validate_config`` warns about them).
+
+    >>> initial_tempos({"tempo_list": [92, 104.4, "x", 400],
+    ...                 "quantize": 1.0, "min_bpm": 20.0, "max_bpm": 300.0})
+    [92.0, 104.0, 300.0]
+    """
+    tl = cfg.get("tempo_list") or []
+    if not isinstance(tl, (list, tuple)):
+        return []
+    return [clamp_bpm(quantize_bpm(float(bpm), cfg), cfg)
+            for bpm in tl
+            if isinstance(bpm, (int, float)) and not isinstance(bpm, bool)]
 
 
 def bpm_to_midi_value(bpm: float, cfg: dict) -> int:

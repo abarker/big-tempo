@@ -243,6 +243,8 @@ A timestamped message is printed to stderr on each reload::
 - ``midi.client_name`` – the mididings JACK client cannot be renamed
   at runtime; a note is printed alongside the reload message if this key
   was changed.
+- ``tempo_list`` – read only at startup, so a reload never discards tempos
+  appended or adjusted while playing.
 
 Top-level structure, with the defaults::
 
@@ -255,6 +257,7 @@ Top-level structure, with the defaults::
         "quantize_jack": False,
         "list_update_on_change": True,
         "activate_on_append":    False,
+        "tempo_list": [],
         "debug":   False,
         "receive": { ... },   # incoming CC → BPM action + optional sends
         "send":    { ... },   # trigger → list of MIDI / OSC action dicts
@@ -286,6 +289,10 @@ Other settings
 
 ``list_update_on_change``, ``activate_on_append``
     Tempo-list behavior; see `Tempo list`_.
+
+``tempo_list``
+    Tempos to load into the tempo list at startup, e.g. ``[92, 104, 120]``;
+    see `Tempo list`_.
 
 ``debug``
     Print diagnostic messages to stderr.
@@ -500,7 +507,22 @@ The first ``list_next`` always recalls the first saved tempo; the first
 ``list_prev`` recalls the last.  Appending while stepping through the list
 extends it without disturbing the current position.
 
-**Workflow 2 – pre-load and adjust**
+**Workflow 2 – load a set list from the config**
+
+Put the songs' tempos in the config file, in order::
+
+    "tempo_list": [92, 104, 120],
+
+The list is filled at startup and shown at once, with no entry active, just
+as after appending the tempos by hand: the display keeps following JACK
+until the first ``list_next`` recalls the first tempo (or ``list_prev`` the
+last).  Each tempo is quantized and kept within ``min_bpm`` / ``max_bpm``
+like one you set yourself; anything that is not a number is skipped with a
+warning.  The key is read only at startup, so editing it takes a restart, and
+``list_clear`` empties the list as usual.  A separate config file per set
+list, chosen with ``--config``, keeps several set lists at hand.
+
+**Workflow 3 – pre-load and adjust**
 
 If you know how many songs you need upfront, load the current tempo into N
 slots and then adjust each one individually::
@@ -521,7 +543,7 @@ slots and then adjust each one individually::
 **Whether appending activates the slot**
 
 By default, ``list_append`` (or double-click) adds the new entry without
-moving the pointer – this is why Workflow 2 above needs a separate
+moving the pointer – this is why Workflow 3 above needs a separate
 ``list_next`` to make slot 1 active after pre-loading.  Set
 ``"activate_on_append": True`` in the config to make each newly appended
 tempo active immediately, so further BPM nudges edit it in place (subject to

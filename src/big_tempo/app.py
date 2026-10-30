@@ -15,7 +15,7 @@ import time
 import tkinter as tk
 import tkinter.font as tkfont
 
-from big_tempo.config import clamp_bpm, load_config, quantize_bpm
+from big_tempo.config import clamp_bpm, initial_tempos, load_config, quantize_bpm
 from big_tempo.tempo_list import TempoList
 from big_tempo.constants import (
     BPM_ADOPT_COOLDOWN,
@@ -88,6 +88,10 @@ class BigTempo:
 
         # ── Tempo list (save / cycle / clear) ───────────────────────────────────────────
         self._tempo_list = TempoList()
+        # Preloaded from the config; no entry is active until list_next / list_prev,
+        # just as after list_append, so the display keeps following JACK until then.
+        for bpm in initial_tempos(cfg):
+            self._tempo_list.append(bpm)
 
         # ── JACK client ────────────────────────────────────────────────────────
         if HAS_JACK:
@@ -117,6 +121,9 @@ class BigTempo:
         self._drag_data: dict = {}
         self._setup_window()
         self._create_widgets()
+        if self._tempo_list.tempos:
+            self._dbg(f"tempo_list preloaded: {self._tempo_list.tempos}")
+            self._refresh_list_panel()
         self.midi.start()
         self._update_loop()
 
@@ -152,6 +159,8 @@ class BigTempo:
         What requires a restart
         -----------------------
         - midi.client_name  (mididings JACK client cannot be renamed at runtime)
+        - tempo_list  (read only at startup, so a reload never discards tempos
+          appended or adjusted while playing)
         """
         mtime = self._get_cfg_mtime()
         if mtime == 0.0 or mtime == self._cfg_mtime:

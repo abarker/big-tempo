@@ -13,7 +13,7 @@ import pytest
 # Ensure the src layout is on the path when running without installation.
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from big_tempo.config import DEFAULT_CFG, load_config, validate_config
+from big_tempo.config import DEFAULT_CFG, initial_tempos, load_config, validate_config
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
@@ -486,3 +486,41 @@ class TestLoadConfigStrict:
         f.write_text('{"min_bpm": 40.0}')
         load_config(str(f))
         assert capsys.readouterr().err == ""
+
+
+# ── Preloaded tempo list ──────────────────────────────────────────────────────
+
+class TestTempoListKey:
+    """``tempo_list``: tempos loaded into the tempo list at startup."""
+
+    def test_default_is_empty(self):
+        assert DEFAULT_CFG["tempo_list"] == []
+        assert initial_tempos(DEFAULT_CFG) == []
+
+    def test_loaded_from_file(self, tmp_path):
+        f = tmp_path / "cfg.py"
+        f.write_text('{"tempo_list": [92, 104.5, 120]}')
+        assert initial_tempos(load_config(str(f))) == [92.0, 104.5, 120.0]
+
+    def test_quantized_and_clamped_like_a_set_tempo(self):
+        cfg = {"tempo_list": [92.4, 10, 400], "quantize": 1.0,
+               "min_bpm": 20.0, "max_bpm": 300.0}
+        assert initial_tempos(cfg) == [92.0, 20.0, 300.0]
+
+    def test_non_numbers_skipped_with_warning(self):
+        cfg = dict(DEFAULT_CFG, tempo_list=[92, "fast", True, None, 120])
+        assert initial_tempos(cfg) == [92.0, 120.0]
+        w = validate_config(cfg)
+        assert len(w) == 3 and all("skipped" in x for x in w)
+
+    def test_out_of_range_warns(self):
+        w = validate_config(dict(DEFAULT_CFG, tempo_list=[10]))
+        assert len(w) == 1 and "clamped" in w[0]
+
+    def test_not_a_list_warns_and_loads_nothing(self):
+        cfg = dict(DEFAULT_CFG, tempo_list=120)
+        assert initial_tempos(cfg) == []
+        assert any("must be a list" in x for x in validate_config(cfg))
+
+    def test_valid_list_no_warnings(self):
+        assert validate_config(dict(DEFAULT_CFG, tempo_list=[92, 120.5])) == []

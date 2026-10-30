@@ -94,7 +94,8 @@ one warning line and stays off.  If ``mididings`` is installed but no JACK
 server is reachable, the background MIDI thread prints a connection-error
 traceback to stderr on startup instead of a clean warning – this does not
 crash the app.
-``python-osc`` is a hard dependency and is installed automatically.
+The ``python-osc`` package is a hard dependency and is installed
+automatically.
 
 **Platform.**  Developed and tested on Ubuntu 24.04; other Linux
 distributions should work the same way.  A running JACK server is needed
@@ -121,8 +122,8 @@ the clone, or wherever you prefer, then activate it::
     python3 -m venv .venv
     source .venv/bin/activate
 
-``mididings`` is compiled when pip installs it, so first install the
-system libraries it builds against, and tkinter::
+The ``mididings`` package is compiled when pip installs it, so first
+install the system libraries it builds against, and tkinter::
 
     # Debian / Ubuntu
     sudo apt install build-essential pkg-config python3-dev python3-tk \
@@ -168,8 +169,8 @@ venv's own interpreter into the installed ``big-tempo`` command as an
 absolute shebang, so it runs without the venv activated afterward -- the
 shell only needs a way to find it, e.g. its full path
 (``/path/to/venv/bin/big-tempo``) or that venv's ``bin/`` on ``PATH``.
-``pipx install`` works the same way and puts the command on ``PATH`` for
-you.
+Installing with ``pipx install`` works the same way and puts the command on
+``PATH`` for you.
 
 Connect a MIDI controller to big-tempo's JACK MIDI ports with ``jack_connect``
 or a patchbay such as QjackCtl.  The client is named ``big_tempo_midi`` by
@@ -184,7 +185,8 @@ with **Quit** and **Cancel**, since that mode has no title-bar close button.
 
 All CLI options::
 
-    --config PATH         Python dict literal config file
+    --config PATH         Config file (default:
+                          ~/.config/big-tempo/config.py)
     --width-in FLOAT      Window width in inches
     --height-in FLOAT     Window height in inches
     --update-ms INT       How often to poll JACK and refresh the display, in
@@ -208,23 +210,30 @@ All CLI options::
 Config file
 -----------
 
-Default location: ``~/.config/big-tempo/config.py``
+The config file is a short text file of settings, and writing one requires no
+knowledge of Python.  (For those who do know Python: the file is a Python dict
+literal, read with ``ast.literal_eval``, so it is only read, never run.)
 
-The file must contain a single Python **dict literal**.  Full ``#`` comment
-syntax and trailing commas are supported (unlike JSON).  It is parsed with
-``ast.literal_eval`` – no arbitrary code is executed.
-
-A fully annotated starter file is provided as ``examples/example_config.py``
-in the repository root::
+The easiest start is to copy the annotated example,
+`examples/example_config.py <examples/example_config.py>`_, to the default
+location and edit it there::
 
     mkdir -p ~/.config/big-tempo
     cp examples/example_config.py ~/.config/big-tempo/config.py
+
+Another file can be chosen with ``--config``.  The format is simple:
+
+- The whole file is enclosed in one pair of braces, ``{ ... }``.
+- Each setting is a name in quotes, a colon and a value, followed by a
+  comma: ``"min_bpm": 40,``.
+- A setting made of several settings uses braces too, like ``"midi"``
+  below, and a list of values uses square brackets: ``[92, 104, 120]``.
+- Text after ``#`` is a comment.
 
 The loader checks the config on every load and reload (see `Hot reload`_).
 Problems (unknown action names, missing required keys, out-of-range values,
 old key names) are printed to stderr as ``Config warning:`` lines.  The
 config is still applied -- the warnings are informational, not fatal.
-
 
 Top-level structure, with the defaults::
 
@@ -240,20 +249,15 @@ Top-level structure, with the defaults::
         "tempo_list": [],
         "debug":   False,
         "receive": { ... },   # incoming CC → BPM action + optional sends
-        "send":    { ... },   # trigger → list of MIDI / OSC action dicts
+        "send":    { ... },   # trigger → list of MIDI / OSC actions
     }
-
-.. note::
-
-   ``midi.channel`` filters incoming CC events: only events on that channel
-   are matched against ``receive`` (default 1).  Outgoing sends are
-   unaffected -- each takes its own explicit ``"channel"`` (see below).
 
 
 Receive actions
 ~~~~~~~~~~~~~~~
 
-``"receive"`` maps CC numbers (``"CC<n>"``) to action dicts.
+The ``"receive"`` setting maps incoming CC numbers (``"CC<n>"``) to
+actions, each written in braces.
 
 .. list-table::
    :header-rows: 1
@@ -309,10 +313,10 @@ messages alongside its primary action::
 Outgoing sends (``send``)
 ~~~~~~~~~~~~~~~~~~~~~~~~~
 
-``"send"`` maps trigger names to a **list** of action dicts.  Actions fire in
-list order, and MIDI and OSC actions can be mixed on the same trigger.  The
-same OSC host and port can appear on several triggers; one UDP socket is
-reused for each ``(host, port)`` pair.
+The ``"send"`` setting maps trigger names to a **list** of actions, each
+written in braces.  Actions fire in list order, and MIDI and OSC actions can
+be mixed on the same trigger.  The same OSC host and port can appear on
+several triggers; one UDP socket is reused for each ``(host, port)`` pair.
 
 **Trigger names:**
 
@@ -432,8 +436,23 @@ reused for each ``(host, port)`` pair.
     },
 
 
-Other settings
-~~~~~~~~~~~~~~
+Settings
+~~~~~~~~
+
+Besides ``receive`` and ``send``, the config has these settings:
+
+``midi``
+    The MIDI connection.  The ``"client_name"`` value is big-tempo's JACK
+    MIDI client name (default ``"big_tempo_midi"``; changing it needs a
+    restart).  The ``"channel"`` value filters incoming CCs: only events on
+    that channel are matched against ``receive`` (default 1).  Outgoing
+    sends are unaffected; each gives its own ``"channel"``.
+
+``buttons``
+    The ▲ / ▼ buttons.  A press changes the tempo by ``"increment"`` BPM
+    (default 1.0).  Holding a button repeats the change, starting after
+    ``"repeat_delay_ms"`` (default 400) and then every ``"repeat_ms"``
+    (default 80) until it is released.
 
 ``min_bpm`` / ``max_bpm``
     The allowed tempo range.  Every tempo, including one followed from JACK,
@@ -441,8 +460,8 @@ Other settings
 
 ``quantize``
     Snap every tempo change you make to the nearest multiple of this step:
-    ``1.0`` for whole BPM, ``0.5`` for half BPM, and so on.  ``None`` or
-    ``0`` turns it off (the default).
+    ``1.0`` for whole BPM, ``0.5`` for half BPM, and so on.  A value of
+    ``None`` or ``0`` turns it off (the default).
 
 ``quantize_jack``
     When ``True``, also snap tempos followed from the JACK transport master
@@ -459,14 +478,6 @@ Other settings
 
 ``debug``
     Print diagnostic messages to stderr.
-
-
-Button hold-repeat
-~~~~~~~~~~~~~~~~~~
-
-Holding ▲ or ▼ changes the tempo by ``buttons.increment`` at once, then,
-after ``repeat_delay_ms`` (default 400), repeats every ``repeat_ms``
-(default 80) until released.
 
 
 Hot reload
@@ -575,8 +586,8 @@ than from wherever the pointer previously sat.
 While a list entry is active (``list_next`` or ``list_prev`` has been used
 at least once), tempo changes you make -- buttons, incoming MIDI, or the
 scroll wheel over the display -- and tempos followed from JACK also update
-the stored value of the active slot.  ``"list_update_on_change"`` in the
-config controls this:
+the stored value of the active slot.  The ``"list_update_on_change"``
+setting controls this:
 
 - ``True`` *(default)* – the active slot tracks the playing BPM.  Nudge
   freely; the slot stays in sync.

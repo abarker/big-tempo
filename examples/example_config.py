@@ -10,8 +10,9 @@
 # A timestamped notice is printed to the terminal on each reload.
 #
 # What reloads live:  all receive/send mappings, min/max BPM, quantize,
-#                     buttons, debug, OSC targets.
-# Requires restart:   midi.client_name (JACK client rename not supported).
+#                     buttons, tempo-list behavior, debug, OSC targets.
+# Requires restart:   midi.client_name (JACK client rename not supported),
+#                     tempo_list (read only at startup).
 {
     "midi": {
         "client_name": "big_tempo_midi",
@@ -59,6 +60,13 @@
     # list_next advances from it.  When False (default), appended tempos are
     # saved but the pointer stays where it was until you switch to the list.
     "activate_on_append":     False,
+
+    # ── Tempo list: preload at startup ────────────────────────────────────────
+    # Tempos to load into the list when big-tempo starts, e.g. a set list:
+    # [92, 104, 120].  None is active, so the display follows JACK until the
+    # first list_next / list_prev.  Read only at startup: a reload never
+    # discards tempos appended or adjusted while playing.
+    "tempo_list":             [],
 
     # ── Incoming MIDI CC mappings ──────────────────────────────────────────────
     # Key format: "CC<number>"  (CC number 0–127)

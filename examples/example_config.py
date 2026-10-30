@@ -89,7 +89,7 @@
     #   midi_only – fire the entry's "send" list, no BPM change
     #
     # Any receive entry may carry a "send" list to fire additional MIDI and/or
-    # OSC messages alongside (or instead of) its BPM action.  See the unified
+    # OSC messages alongside (or instead of) its BPM action.  See the outgoing
     # "send" section below for the action dict format.
     "receive": {
         "CC20": {"action": "up",          "amount": 1.0},
@@ -116,7 +116,7 @@
                            "address": "/log/bpm_up", "args": ["bpm", "raw"]}]},
     },
 
-    # ── Unified outgoing sends ─────────────────────────────────────────────────
+    # ── Outgoing sends ─────────────────────────────────────────────────────────
     # Maps trigger names to a list of action dicts.  Every action dict must
     # carry a "send" key of "MIDI" or "OSC".
     #

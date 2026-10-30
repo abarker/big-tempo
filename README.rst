@@ -24,6 +24,11 @@ fill its window, so it can be read from across a stage or a room.
    up as pills that can be stepped through live.
 
 
+.. contents:: Contents
+   :depth: 2
+   :local:
+
+
 Features
 --------
 
@@ -58,8 +63,11 @@ Features
   half BPM
 
 
+Getting started
+---------------
+
 Requirements
-------------
+~~~~~~~~~~~~
 
 .. list-table::
    :header-rows: 1
@@ -100,7 +108,7 @@ support Windows.
 
 
 Installation
-------------
+~~~~~~~~~~~~
 
 The package is not on PyPI.  Clone the repository first::
 
@@ -146,7 +154,7 @@ For development (adds pytest)::
 
 
 Running
--------
+~~~~~~~
 
 .. code-block:: bash
 
@@ -212,40 +220,11 @@ in the repository root::
     mkdir -p ~/.config/big-tempo
     cp examples/example_config.py ~/.config/big-tempo/config.py
 
-The loader checks the config on every load and reload.  Problems (unknown
-action names, missing required keys, out-of-range values, old key names) are
-printed to stderr as ``Config warning:`` lines.  The config is still
-applied -- the warnings are informational, not fatal.
+The loader checks the config on every load and reload (see `Hot reload`_).
+Problems (unknown action names, missing required keys, out-of-range values,
+old key names) are printed to stderr as ``Config warning:`` lines.  The
+config is still applied -- the warnings are informational, not fatal.
 
-Hot reload
-~~~~~~~~~~
-
-The config file is **reloaded automatically while the program is running**.
-On every update tick (``--update-ms``, default 100 ms) big-tempo checks the
-file's modification time; if it has changed, the new config is read and
-applied at once -- no restart needed.
-
-A timestamped message is printed to stderr on each reload::
-
-    [14:32:07] config reloaded: /home/user/.config/big-tempo/config.py
-
-**What takes effect immediately:**
-
-- All ``receive`` and ``send`` mappings
-- ``midi.channel``
-- ``min_bpm``, ``max_bpm``, ``quantize``, ``quantize_jack``
-- ``buttons`` timing (increment, repeat delay/rate)
-- ``list_update_on_change``, ``activate_on_append``
-- ``debug`` flag
-- OSC targets (the send pool is rebuilt fresh on each reload)
-
-**Requires a restart:**
-
-- ``midi.client_name`` – the mididings JACK client cannot be renamed
-  at runtime; a note is printed alongside the reload message if this key
-  was changed.
-- ``tempo_list`` – read only at startup, so a reload never discards tempos
-  appended or adjusted while playing.
 
 Top-level structure, with the defaults::
 
@@ -269,34 +248,6 @@ Top-level structure, with the defaults::
    ``midi.channel`` filters incoming CC events: only events on that channel
    are matched against ``receive`` (default 1).  Outgoing sends are
    unaffected -- each takes its own explicit ``"channel"`` (see below).
-
-Other settings
-~~~~~~~~~~~~~~
-
-``min_bpm`` / ``max_bpm``
-    The allowed tempo range.  Every tempo, including one followed from JACK,
-    is kept within it, and the ``set`` action maps CC values onto it.
-
-``quantize``
-    Snap every tempo change you make to the nearest multiple of this step:
-    ``1.0`` for whole BPM, ``0.5`` for half BPM, and so on.  ``None`` or
-    ``0`` turns it off (the default).
-
-``quantize_jack``
-    When ``True``, also snap tempos followed from the JACK transport master
-    to the ``quantize`` grid.  If the snapped value differs from the one
-    received, the ``on_quantize`` trigger fires -- for example to push the
-    corrected tempo back to the drum machine.
-
-``list_update_on_change``, ``activate_on_append``
-    Tempo-list behavior; see `Tempo list`_.
-
-``tempo_list``
-    Tempos to load into the tempo list at startup, e.g. ``[92, 104, 120]``;
-    see `Tempo list`_.
-
-``debug``
-    Print diagnostic messages to stderr.
 
 
 Receive actions
@@ -355,8 +306,8 @@ messages alongside its primary action::
     },
 
 
-Unified send lists (``send``)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Outgoing sends (``send``)
+~~~~~~~~~~~~~~~~~~~~~~~~~
 
 ``"send"`` maps trigger names to a **list** of action dicts.  Actions fire in
 list order, and MIDI and OSC actions can be mixed on the same trigger.  The
@@ -481,8 +432,76 @@ reused for each ``(host, port)`` pair.
     },
 
 
-Tempo list
+Other settings
+~~~~~~~~~~~~~~
+
+``min_bpm`` / ``max_bpm``
+    The allowed tempo range.  Every tempo, including one followed from JACK,
+    is kept within it, and the ``set`` action maps CC values onto it.
+
+``quantize``
+    Snap every tempo change you make to the nearest multiple of this step:
+    ``1.0`` for whole BPM, ``0.5`` for half BPM, and so on.  ``None`` or
+    ``0`` turns it off (the default).
+
+``quantize_jack``
+    When ``True``, also snap tempos followed from the JACK transport master
+    to the ``quantize`` grid.  If the snapped value differs from the one
+    received, the ``on_quantize`` trigger fires -- for example to push the
+    corrected tempo back to the drum machine.
+
+``list_update_on_change``, ``activate_on_append``
+    Tempo-list behavior; see `Tempo list`_.
+
+``tempo_list``
+    Tempos to load into the tempo list at startup, e.g. ``[92, 104, 120]``;
+    see `Tempo list`_.
+
+``debug``
+    Print diagnostic messages to stderr.
+
+
+Button hold-repeat
+~~~~~~~~~~~~~~~~~~
+
+Holding ▲ or ▼ changes the tempo by ``buttons.increment`` at once, then,
+after ``repeat_delay_ms`` (default 400), repeats every ``repeat_ms``
+(default 80) until released.
+
+
+Hot reload
 ~~~~~~~~~~
+
+The config file is **reloaded automatically while the program is running**.
+On every update tick (``--update-ms``, default 100 ms) big-tempo checks the
+file's modification time; if it has changed, the new config is read and
+applied at once -- no restart needed.
+
+A timestamped message is printed to stderr on each reload::
+
+    [14:32:07] config reloaded: /home/user/.config/big-tempo/config.py
+
+**What takes effect immediately:**
+
+- All ``receive`` and ``send`` mappings
+- ``midi.channel``
+- ``min_bpm``, ``max_bpm``, ``quantize``, ``quantize_jack``
+- ``buttons`` timing (increment, repeat delay/rate)
+- ``list_update_on_change``, ``activate_on_append``
+- ``debug`` flag
+- OSC targets (the send pool is rebuilt fresh on each reload)
+
+**Requires a restart:**
+
+- ``midi.client_name`` – the mididings JACK client cannot be renamed
+  at runtime; a note is printed alongside the reload message if this key
+  was changed.
+- ``tempo_list`` – read only at startup, so a reload never discards tempos
+  appended or adjusted while playing.
+
+
+Tempo list
+----------
 
 The tempo list lets you save BPM snapshots and switch between them during a
 performance.  There are two ways to fill it: **add tempos one at a time** as
@@ -608,13 +627,6 @@ the pill row closes.
 - Removing an **inactive** entry after the active one leaves the pointer
   unchanged.
 
-Button hold-repeat
-~~~~~~~~~~~~~~~~~~
-
-Holding ▲ or ▼ changes the tempo by ``buttons.increment`` at once, then,
-after ``repeat_delay_ms`` (default 400), repeats every ``repeat_ms``
-(default 80) until released.
-
 
 Development
 -----------
@@ -633,7 +645,7 @@ headless CI environments.
 
 
 Package layout
---------------
+~~~~~~~~~~~~~~
 
 .. code-block:: text
 

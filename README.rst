@@ -337,7 +337,9 @@ several triggers; one UDP socket is reused for each ``(host, port)`` pair.
    * - ``transport_start``
      - JACK transport transitions from stopped to rolling
    * - ``transport_stop``
-     - JACK transport transitions from rolling to stopped
+     - JACK transport transitions from rolling to stopped.  A relocate made
+       while rolling is not a stop: JACK's brief Starting state counts as
+       rolling.
    * - ``transport_toggle``
      - Either transport transition
 

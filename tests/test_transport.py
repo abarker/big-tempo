@@ -377,3 +377,47 @@ class TestFireOnQuantize:
         raw2 = 120.3
         snapped2 = quantize_bpm(raw2, {"quantize": 1.0})
         assert abs(snapped2 - raw2) > 1e-6  # guard WOULD fire
+
+
+# ── is_rolling: JACK's Starting state counts as rolling ───────────────────────
+
+_jack = sys.modules["jack"]
+for _name, _val in (("STOPPED", 0), ("STARTING", 3), ("NETSTARTING", 4)):
+    if not hasattr(_jack, _name):
+        setattr(_jack, _name, _val)
+
+from big_tempo.transport import is_rolling
+
+
+def _edges(states):
+    """The edges BigTempo._update_loop fires for a sequence of polled
+    states (its edge detection, replicated; no tkinter needed)."""
+    prev, out = None, []
+    for st in states:
+        rolling = is_rolling(st)
+        if prev is None:
+            prev = rolling
+        elif rolling != prev:
+            prev = rolling
+            out.append("transport_start" if rolling else "transport_stop")
+    return out
+
+
+class TestIsRolling:
+    def test_states(self):
+        assert is_rolling(_jack.ROLLING)
+        assert is_rolling(_jack.STARTING)
+        assert is_rolling(_jack.NETSTARTING)
+        assert not is_rolling(_jack.STOPPED)
+
+    def test_relocate_while_rolling_fires_nothing(self):
+        """JACK2 reports Starting for a cycle on a relocate while rolling
+        (e.g. SooperLooper's realign); a poll landing in it must not fire
+        transport_stop and then transport_start."""
+        R, S = _jack.ROLLING, _jack.STARTING
+        assert _edges([R, R, S, R, R]) == []
+
+    def test_start_and_stop_still_fire_once(self):
+        R, S, X = _jack.ROLLING, _jack.STARTING, _jack.STOPPED
+        assert _edges([X, S, S, R, R, X]) == ["transport_start", "transport_stop"]
+        assert _edges([X, R, X]) == ["transport_start", "transport_stop"]

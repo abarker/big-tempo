@@ -42,6 +42,7 @@ from big_tempo.constants import (
 )
 from big_tempo.midi import MidiHandler
 from big_tempo.osc  import OscSender
+from big_tempo.transport import is_rolling
 
 try:
     import jack
@@ -884,7 +885,9 @@ class BigTempo:
         if self.jack_client:
             try:
                 state, pos = self.jack_client.transport_query()
-                self._rolling = (state == jack.ROLLING)
+                # Starting counts as rolling (see is_rolling): a relocate
+                # while rolling is not a stop and a start.
+                self._rolling = is_rolling(state)
 
                 # Detect start/stop edges (skip on the very first poll)
                 if self._prev_rolling is None:

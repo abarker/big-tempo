@@ -20,8 +20,8 @@ fill its window, so it can be read from across a stage or a room.
    :alt: big-tempo with the tempo list panel open, showing four saved BPM
          values as pills below the readout
 
-   With the tempo list panel open: BPM values saved during soundcheck show
-   up as pills that can be stepped through live.
+   With the tempo list panel open: saved BPM values show up as pills that can
+   be stepped through live.
 
 
 .. contents:: Contents
@@ -46,7 +46,7 @@ Features
   from JACK being quantized, and JACK transport start / stop / either
   transition; each trigger can send to several destinations at once (for
   example, the same tempo to Hydrogen and to a second program)
-- **Tempo list** – save BPM snapshots during soundcheck, or load a set list
+- **Tempo list** – save BPM snapshots, or load a set list
   from the config at startup (``tempo_list``), and cycle forward or
   backward through them live (``list_next`` / ``list_prev``); also fully
   controllable from the mouse and keyboard (double-click to append, Tab /
@@ -521,11 +521,11 @@ performance.  There are two ways to fill it: **add tempos one at a time** as
 you dial them in, or **pre-load a fixed number of slots** and adjust each one
 before you start.
 
-**Workflow 1 – soundcheck capture**
+**Workflow 1 – save tempos as you go**
 
 Dial each song's tempo and append it as you go::
 
-    # Soundcheck: set the tempo, then append it
+    # Set the tempo, then append it
     CC23  →  list_append      (or double-click the BPM display)
     ...repeat for each song...
 
